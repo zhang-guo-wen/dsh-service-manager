@@ -8,17 +8,15 @@ DeepSeek Harness 服务管理插件。设置页中，「服务管理」紧跟在
 
 ## 安装
 
-宿主版本要求：DSH >= 0.1.7（包括对应预发布版本）。从本地目录安装：
+宿主版本要求：DSH >= 0.1.7（包括对应预发布版本）。
 
-桌面版：打开「插件 → 添加插件」，输入 `C:/02-codespace/DeepSeek/dsh-service-manager`，安装后选择「立即启用」。桌面 profile 由应用管理，不使用 CLI 安装。
-
-Web 版：
-
-```powershell
-npx @deepseek-ai/dsh plugin --profile web add C:/02-codespace/DeepSeek/dsh-service-manager
+```sh
+npx @deepseek-ai/dsh plugin --profile web add @guowenzhang/dsh-service-manager
 ```
 
-安装后重启 Harness 并刷新 Web 页面。`lib/` 包含可安装的宿主和浏览器产物。
+来自 npm 官方源：<https://www.npmjs.com/package/@guowenzhang/dsh-service-manager>。装完重启宿主并刷新 Web 页面；本地目录开发安装、git 源与排查见 [AGENTS.md](AGENTS.md)。
+
+桌面版：打开「插件 → 添加插件」，输入本地克隆路径，安装后选择「立即启用」。桌面 profile 由应用管理，不使用 CLI 安装。
 
 ## 使用
 

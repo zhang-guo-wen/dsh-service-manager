@@ -8,17 +8,15 @@ Removing a record never stops the service or deletes containers or volumes.
 
 ## Install
 
-Requires DSH >= 0.1.7, including its prereleases. Install the local package, restart Harness, and refresh the browser:
+Requires DSH >= 0.1.7, including its prereleases.
 
-Desktop: open **Plugins → Add plugin**, enter `C:/02-codespace/DeepSeek/dsh-service-manager`, install, and choose **Enable now**. The desktop profile is managed by the app rather than the CLI.
-
-Web:
-
-```powershell
-npx @deepseek-ai/dsh plugin --profile web add C:/02-codespace/DeepSeek/dsh-service-manager
+```sh
+npx @deepseek-ai/dsh plugin --profile web add @guowenzhang/dsh-service-manager
 ```
 
-The `lib/` directory contains installable host and browser bundles.
+From the npm registry: <https://www.npmjs.com/package/@guowenzhang/dsh-service-manager> — restart the host and refresh the browser afterwards; local checkouts, git sources and troubleshooting are in [AGENTS.md](AGENTS.md).
+
+Desktop: open **Plugins → Add plugin**, enter a local checkout path, install, and choose **Enable now**. The desktop profile is managed by the app rather than the CLI.
 
 ## Use
 
