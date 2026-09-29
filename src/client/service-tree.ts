@@ -1,7 +1,11 @@
 import type { ServiceView } from '../types.ts'
 
-export interface SessionGroup { session: string; services: ServiceView[] }
-export interface WorkspaceGroup { project: string; sessions: SessionGroup[]; count: number }
+export interface SessionGroup { session: string; services: ServiceView[]; running: number; ended: number }
+export interface WorkspaceGroup { project: string; sessions: SessionGroup[]; count: number; ended: number }
+export interface GroupOptions {
+  /** Include records the host no longer reports as running. */
+  includeEnded?: boolean
+}
 
 interface ProjectPath { key: string; project: string; name: string; windows: boolean }
 
@@ -21,10 +25,23 @@ function projectPath(project: string): ProjectPath | undefined {
 // A user-written session label is not sufficient evidence to associate a legacy
 // workspace name with a path. Use the complete Harness session identity only.
 const sessionIdentity = /^session-[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i
+const bareSessionIdentity = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i
 
-/** Group confirmed running services without merging sessions across workspaces. */
-export function groupRunningServices(services: readonly ServiceView[]): WorkspaceGroup[] {
+/**
+ * The Harness session a record belongs to, when the record names one. Current
+ * sessions carry the `session-` prefix; sessions stored before it are bare
+ * UUIDs. A user-written label is never a navigation target.
+ */
+export function sessionTargetId(session: string): string | undefined {
+  return sessionIdentity.test(session) || bareSessionIdentity.test(session) ? session : undefined
+}
+
+/** Group services without merging sessions across workspaces. */
+export function groupServices(services: readonly ServiceView[], options: GroupOptions = {}): WorkspaceGroup[] {
   const running = services.filter(service => service.status === 'running')
+  const visible = options.includeEnded ? services : running
+  // Alias evidence stays running-only: an ended record proves nothing about the
+  // workspace a legacy service name belongs to.
   const pathsBySession = new Map<string, Map<string, ProjectPath>>()
   for (const { record } of running) {
     const path = projectPath(record.project)
@@ -36,7 +53,7 @@ export function groupRunningServices(services: readonly ServiceView[]): Workspac
 
   const workspaces = new Map<string, WorkspaceGroup>()
   const sessions = new Map<WorkspaceGroup, Map<string, SessionGroup>>()
-  for (const service of running) {
+  for (const service of visible) {
     const { project, session } = service.record
     let path = projectPath(project)
     if (!path && project && !/[\\/]/.test(project)) {
@@ -47,19 +64,31 @@ export function groupRunningServices(services: readonly ServiceView[]): Workspac
     const key = path?.key ?? `label:${project}`
     let workspace = workspaces.get(key)
     if (!workspace) {
-      workspace = { project: path?.project ?? project, sessions: [], count: 0 }
+      workspace = { project: path?.project ?? project, sessions: [], count: 0, ended: 0 }
       workspaces.set(key, workspace)
       sessions.set(workspace, new Map())
     }
     const account = sessions.get(workspace)!
     let group = account.get(session)
     if (!group) {
-      group = { session, services: [] }
+      group = { session, services: [], running: 0, ended: 0 }
       account.set(session, group)
       workspace.sessions.push(group)
     }
     group.services.push(service)
-    workspace.count++
+    if (service.status === 'running') {
+      group.running++
+      workspace.count++
+    } else {
+      group.ended++
+      workspace.ended++
+    }
+  }
+  // Running services lead their session; the stable sort keeps host order within each status.
+  for (const workspace of workspaces.values()) {
+    for (const group of workspace.sessions) {
+      group.services.sort((left, right) => Number(right.status === 'running') - Number(left.status === 'running'))
+    }
   }
   return [...workspaces.values()]
 }
@@ -72,5 +101,7 @@ export function projectLabel(project: string, fallback: string): string {
 /** Shorten opaque session identities while preserving explicit session labels. */
 export function sessionLabel(session: string, label: string, fallback: string): string {
   if (!session) return fallback
-  return /^session-[\da-f-]+$/i.test(session) ? `${label} · ${session.slice(8, 16)}` : session
+  if (sessionIdentity.test(session)) return `${label} · ${session.slice(8, 16)}`
+  if (bareSessionIdentity.test(session)) return `${label} · ${session.slice(0, 8)}`
+  return session
 }

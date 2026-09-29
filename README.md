@@ -20,9 +20,13 @@ Desktop: open **Plugins → Add plugin**, enter a local checkout path, install, 
 
 ## Use
 
-Open **Settings → Service Manager**. The collapsible tree groups **Workspace → Session → Service** and displays confirmed running services only. Missing associations have dedicated fallback groups. Each service has one **Force stop** action, with a page-level refresh control.
+Open **Settings → Service Manager**. The collapsible tree groups **Workspace → Session → Service** and shows confirmed running services. Missing associations have dedicated fallback groups. Each service has one **Force stop** action; the page offers refresh, **Stop all**, and a **Show ended** toggle.
 
-Click a service's HTTP(S) address to open it in a new browser tab.
+Click a service's HTTP(S) address to open it in a new browser tab. A session row with a complete Harness session identity also offers **Open session**, which selects that session and leaves the settings page; a user-written session label is not a navigation target.
+
+**Show ended** reveals the records the host no longer reports as running: grayed rows labelled **Exited** (the registered PID has closed), **PID reused** (the registered process exited and its PID now belongs to another process), or **Status unknown** (identity could not be verified). Ended rows carry no stop action, and their tooltip holds the host's diagnostic.
+
+**Stop all** asks for confirmation, then force-stops every running service in one call and reports the ones that refused to stop. Ended and unverifiable records never enter the batch.
 
 Grouping recognizes Windows path case, slash, and trailing separator variants. A legacy workspace name joins a matching directory only when running records share the complete Harness session ID and identify a single matching path. Distinct paths and ambiguous names remain separate; grouping does not rewrite registry records or stop identities.
 
@@ -38,7 +42,7 @@ Discovery covers new executions after this version loads. Processes that clear i
 
 Resources outside automatic discovery can be registered through the plugin's `registerService` API, supplying a PID or container reference and optional workspace/session metadata. The model is not given a registration tool.
 
-Stopped, unknown, and changed identities are hidden without deleting their records. Successful stops disappear from the tree. Failed refreshes hide stale rows and show a query error. The API still returns complete statuses and supports removing records.
+Stopped, unknown, and changed identities stay hidden until **Show ended** is on, and their records are neither deleted nor treated as the original process. Successful stops leave the running tree. Failed refreshes hide stale rows and show a query error. The API still returns complete statuses and supports removing records.
 
 Refresh checks only registered local PIDs and remaining manual-stop targets in one batch, alongside container checks. Status is queried live without caching; full process-tree queries are reserved for registration and preparing a manual stop.
 
@@ -49,6 +53,8 @@ Refresh checks only registered local PIDs and remaining manual-stop targets in o
 - Docker normal stop uses an infinite grace period, with a 12-second local deadline. The daemon request can remain pending; refresh and explicitly force stop if necessary. Force uses `docker kill`.
 - Docker restart policies are retained and may restart the service. The status detail shows the policy.
 - Child processes are optional, off by default. Tree stops verify identities and signal children before parents. Remaining child identities are persisted for later manual stops, including orphaned children. Inaccessible child identities block the tree stop.
+
+**Stop all** uses the same confirmation and sends one `force: true` request for every running service, then lists the ones that refused. It is available only while something is running, and only a user click starts it.
 
 Processes currently support Windows and Linux. Docker requires its CLI on the host PATH. No privileges are elevated. Direct DOCKER_HOST overrides require an explicit named context. Already detached processes need independent registration.
 PID checks reduce reuse risk; Linux still has a race between identity lookup and signal delivery.

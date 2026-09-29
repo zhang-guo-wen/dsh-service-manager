@@ -1,5 +1,8 @@
 .section { display: flex; flex-direction: column; gap: 20px; width: 100%; color: var(--dsw-alias-label-primary); font-size: 13px; }
 .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.controls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; flex-shrink: 0; }
+.toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--dsw-alias-label-secondary); font-size: 12px; cursor: pointer; user-select: none; }
+.toggle input { margin: 0; accent-color: var(--dsw-alias-state-business-primary); cursor: pointer; }
 .header h2 { display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 600; margin: 0 0 6px; }
 .total { padding: 1px 7px; border-radius: 6px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); font-size: 12px; font-weight: 500; }
 .hint, .meta { color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 1.6; }
@@ -13,13 +16,19 @@
 .workspace summary::before, .session summary::before { content: ''; width: 5px; height: 5px; border-right: 1.5px solid var(--dsw-alias-label-tertiary); border-bottom: 1.5px solid var(--dsw-alias-label-tertiary); transform: rotate(-45deg); flex-shrink: 0; }
 .workspace[open] > summary::before, .session[open] > summary::before { transform: rotate(45deg); }
 .groupLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.count { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
+.count { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; font-size: 11px; font-weight: 400; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
+.countEnded { color: var(--dsw-alias-label-tertiary); opacity: 0.8; }
+.jump { flex-shrink: 0; border: 0; padding: 2px 4px; background: none; color: var(--dsw-alias-state-business-primary); font: inherit; font-size: 12px; cursor: pointer; border-radius: 4px; }
+.jump:hover { text-decoration: underline; text-underline-offset: 2px; }
 .sessions { padding: 4px 14px 10px 24px; }
 .session > summary { padding: 10px 0; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .services { margin-left: 2px; padding-left: 16px; border-left: 1px solid var(--dsw-alias-border-l2); }
 .service { display: flex; align-items: center; gap: 10px; padding: 10px 0; }
 .service + .service { border-top: 0.5px solid var(--dsw-alias-border-l2); }
 .dot, .emptyDot { width: 6px; height: 6px; border-radius: 50%; background: var(--dsw-alias-state-success-primary); flex-shrink: 0; }
+.dot[data-status='stopped'], .dot[data-status='changed'], .dot[data-status='unknown'] { background: var(--dsw-alias-label-tertiary); opacity: 0.4; }
+.status { flex-shrink: 0; color: var(--dsw-alias-label-tertiary); font-size: 12px; }
+.service[data-status='stopped'] .info strong, .service[data-status='changed'] .info strong, .service[data-status='unknown'] .info strong { font-weight: 400; color: var(--dsw-alias-label-secondary); }
 .info { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .info strong { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
@@ -33,5 +42,7 @@
 .error { color: var(--dsw-alias-state-error-primary); font-size: 12px; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .actions { display: flex; justify-content: flex-end; gap: 8px; }
 .target { color: var(--dsw-alias-label-primary); font-size: 13px; font-weight: 600; overflow-wrap: anywhere; margin: 0 0 16px; }
-.workspace summary:focus-visible, .session summary:focus-visible, .url:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: -2px; border-radius: 4px; }
+.targets { list-style: disc; margin: 0; padding-left: 18px; max-height: 160px; overflow: auto; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.targets li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace summary:focus-visible, .session summary:focus-visible, .url:focus-visible, .jump:focus-visible, .toggle input:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: -2px; border-radius: 4px; }
 @media (max-width: 480px) { .sessions { padding-left: 16px; padding-right: 10px; }.services { padding-left: 10px; }.service { gap: 7px; } }
