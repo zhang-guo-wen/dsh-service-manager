@@ -1,0 +1,3 @@
+- insert:
+    - id: service-manager
+      name: '@guowenzhang/dsh-service-manager'
