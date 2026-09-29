@@ -1,6 +1,6 @@
 {
   "name": "@guowenzhang/dsh-service-manager",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "File-backed service registry and manual process/container control for DeepSeek Harness",
   "type": "module",
   "license": "Apache-2.0",
