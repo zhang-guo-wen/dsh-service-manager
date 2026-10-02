@@ -5,7 +5,6 @@ import z from '@deepseek-ai/schemastery'
 import { RegistryStore } from './store.ts'
 import { ServiceRegistry } from './manager.ts'
 import { ServiceManager } from './service-remote.ts'
-import { registerTools } from './tools.ts'
 import { installAutomatic } from './automatic.ts'
 import { installDockerDiscovery } from './docker-discovery.ts'
 
@@ -25,6 +24,9 @@ export function apply(ctx: Context, config: Config = {}): void {
   registry.discovery = automatic
   installDockerDiscovery(ctx, automatic)
   new ServiceManager(ctx, registry)
-  ctx.inject(['tools'], toolsCtx => registerTools(toolsCtx, registry))
+  // No model-facing tools: discovery is automatic (see `installAutomatic`) and
+  // stopping a resource is a user action in the settings section. Registering
+  // `service_list` / `service_stop` made the model a second surface for both,
+  // which is what this plugin's design keeps out.
   // Observer disposal removes hooks only. Resource stopping remains manual.
 }

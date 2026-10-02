@@ -26,7 +26,10 @@ describe('built plugin contract', () => {
       const service = ctx.get('serviceManager') as any
       expect(service).toBeDefined()
       expect(remoteMethods(service).map(row => row.method)).toEqual(['listServices', 'registerService', 'stopServices', 'removeServices'])
-      await vi.waitFor(() => expect([...registered].sort()).toEqual(['service_list', 'service_stop']))
+      // No model-facing tools: discovery is automatic and stopping is a user
+      // action, so a tool registry the host hands over stays empty.
+      await vi.waitFor(() => expect(registered.size).toBe(0))
+      expect([...registered]).toEqual([])
       expect(await service.listServices({})).toEqual({ file: join(dir, 'services.json'), services: [] })
       const stop = vi.spyOn(service.registry, 'stop')
       await fiber.dispose()

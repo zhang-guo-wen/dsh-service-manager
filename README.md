@@ -77,11 +77,8 @@ config:
 
 ## Agent and plugin API
 
-- Registration is handled by host discovery. The former `service_register` model tool has been removed, so agents no longer choose it as a manual fallback. Reload the plugin or restart Harness to update the available tools; refreshing the browser alone is insufficient. Existing conversation history may still show earlier calls.
-- `service_list`: Read records with freshly queried status.
-- `service_stop`: Stop record UUIDs only when requested by the user. Force requires `force: true`.
-
-Plugins can call `ctx.get('serviceManager').registerService(request)`, `listServices({})`, `stopServices({ ids, force })`, or `removeServices({ ids })`. The same methods are exposed through Typert Remote. Integration does not replace other plugins' existing lifecycle behavior.
+- **No model-facing tools.** Registration is handled by host discovery, and stopping is a user action in the settings section: the former `service_register`, `service_list`, and `service_stop` tools have all been removed. Reload the plugin or restart Harness after upgrading — refreshing the browser alone does not change the tool list, and existing conversation history may still show earlier calls.
+- The management surface is a Remote API, not a tool: plugins call `ctx.get('serviceManager').registerService(request)`, `listServices({})`, `stopServices({ ids, force })`, or `removeServices({ ids })`. The same methods are exposed through Typert Remote, and the settings section drives them. Integration does not replace other plugins' existing lifecycle behavior.
 
 ## Development
 

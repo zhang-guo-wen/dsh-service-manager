@@ -85,12 +85,8 @@ config:
 
 ## 模型与插件接入
 
-- 登记由宿主自动发现完成，已移除模型侧的 `service_register` 工具，避免模型继续选择手动登记。更新后需要重载插件或重启 Harness 才能更新工具列表，仅刷新浏览器不够；已有会话中的历史调用仍会保留。
-- `service_list`：查询登记及实时状态。
-- `service_stop`：按登记记录 UUID 手动停止；仅在用户要求停止时调用，强制停止须显式传 `force: true`。
-
-其他插件可以通过 `ctx.get('serviceManager')` 调用 `registerService(request)`、`listServices({})`、`stopServices({ ids, force })`、`removeServices({ ids })`。
-这些方法同时作为 `serviceManager` Typert Remote 提供给页面。接入服务管理不会替换其他插件已有的生命周期行为。
+- **不向模型提供任何工具。** 登记由宿主自动发现完成——模型侧的 `service_register`、`service_list`、`service_stop` 三个工具都已移除——停止则是设置页里的用户操作。升级后需要重载插件或重启 Harness：仅刷新浏览器不会更新工具列表，已有会话中的历史调用仍会保留。
+- 管理面是 Remote API 而不是工具：其他插件通过 `ctx.get('serviceManager')` 调用 `registerService(request)`、`listServices({})`、`stopServices({ ids, force })`、`removeServices({ ids })`；这些方法同时作为 `serviceManager` Typert Remote 提供给页面，设置页正是它的使用者。接入服务管理不会替换其他插件已有的生命周期行为。
 
 ## 开发验证
 
