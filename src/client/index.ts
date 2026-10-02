@@ -20,6 +20,15 @@ interface RemoteService {
 }
 /** Structural lookup keeps optional host services out of the plugin's runtime dependencies. */
 interface SessionNavigator { openSession(target: string): void }
+/** Structural view of the Session Controller list store; the host owns its shape. */
+interface SessionRowLike { readonly displayTitle?: string }
+interface SessionListLike {
+  getSnapshot(): { readonly byId?: Readonly<Record<string, SessionRowLike | undefined>> } | undefined
+  subscribe(listener: () => void): () => void
+}
+interface SessionCatalogLike { readonly list?: SessionListLike }
+const noTitles: ReadonlyMap<string, string> = new Map()
+const noSubscription = (): void => {}
 async function unwrap<T>(call: Promise<RemoteResult<T>>): Promise<T> {
   const result = await call
   if (!result.ok) throw new Error(result.error.message)
@@ -36,6 +45,22 @@ export async function apply(ctx: Context): Promise<void> {
     if (!service) throw new Error('serviceManager namespace is not mounted')
     return service
   }
+  const sessions = (): SessionCatalogLike | undefined => ctx.get('sessions') as SessionCatalogLike | undefined
+  // The list store allocates a fresh snapshot per change, which is the cache key.
+  let titles: { snapshot: unknown; value: ReadonlyMap<string, string> } | undefined
+  const sessionTitles = (): ReadonlyMap<string, string> => {
+    const snapshot = sessions()?.list?.getSnapshot()
+    if (!snapshot) return noTitles
+    if (titles?.snapshot !== snapshot) {
+      const value = new Map<string, string>()
+      for (const [id, row] of Object.entries(snapshot.byId ?? {})) {
+        const name = row?.displayTitle?.trim()
+        if (name) value.set(id, name)
+      }
+      titles = { snapshot, value }
+    }
+    return titles.value
+  }
   const face: ServiceFace = {
     list: () => unwrap(remote().listServices({})),
     stop: request => unwrap(remote().stopServices(request)),
@@ -45,6 +70,9 @@ export async function apply(ctx: Context): Promise<void> {
       if (typeof workspace?.openSession !== 'function') throw new Error('session navigation is unavailable')
       workspace.openSession(session)
     },
+    // Resolved on use for the same reason: the Session catalog may load later.
+    sessionTitles,
+    subscribeSessions: listener => sessions()?.list?.subscribe(listener) ?? noSubscription,
   }
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section', id: 'service-manager', order: 15.5,

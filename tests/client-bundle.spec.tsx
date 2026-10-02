@@ -32,7 +32,11 @@ const service: ServiceView = {
 }
 
 /** Load lib/client.js through the Host handoff and run its apply against a stub client Context. */
-async function boot(workspace?: { openSession(target: string): void }, rows: ServiceView[] = [service]) {
+async function boot(
+  workspace?: { openSession(target: string): void },
+  rows: ServiceView[] = [service],
+  catalog?: { list: { getSnapshot(): unknown; subscribe(listener: () => void): () => void } },
+) {
   // jsdom's import.meta.url is not a file URL, so resolve from the package root.
   const source = await readFile(resolve('lib/client.js'), 'utf8')
   let registration: { id: string; factory(requireExternal: (name: string) => unknown): { apply(ctx: unknown): Promise<void> } } | undefined
@@ -59,7 +63,7 @@ async function boot(workspace?: { openSession(target: string): void }, rows: Ser
       inject: (_name: string, fn: () => void) => { fn() },
       register: (options: any, Component: any) => { section = { options, Component }; return () => {} },
     },
-    get: (name: string) => name === `remote.${REMOTE_NAMESPACE}` ? remote : name === 'uiWorkspace' ? workspace : undefined,
+    get: (name: string) => name === `remote.${REMOTE_NAMESPACE}` ? remote : name === 'uiWorkspace' ? workspace : name === 'sessions' ? catalog : undefined,
   }
   await client.apply(ctx)
   return { remote, disposals, section: section! }
@@ -79,11 +83,31 @@ describe('shipped client bundle', () => {
 
   it('reaches the Workspace navigation capability that loads around this plugin', async () => {
     const workspace = { openSession: vi.fn() }
+    const close = vi.fn()
     const { section } = await boot(workspace)
-    render(createElement(section.Component, { ...section.options.inject(), t: translate }))
+    render(createElement(section.Component, { ...section.options.inject(), close, t: translate }))
     await screen.findByText('Vite server')
     expect(fireEvent.click(screen.getByRole('button', { name: zh.openSession }))).toBe(false)
     expect(workspace.openSession).toHaveBeenCalledExactlyOnceWith(liveSession)
+    // Opening a session must not leave the settings panel covering it.
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it('labels session rows with the names the Session catalog reports', async () => {
+    // A snapshot store hands out one stable snapshot per change, so the read is
+    // safe for useSyncExternalStore.
+    const snapshot = { byId: { [liveSession]: { displayTitle: '修复服务管理弹窗' } } }
+    const catalog = {
+      list: {
+        getSnapshot: () => snapshot,
+        subscribe: () => () => {},
+      },
+    }
+    const { section } = await boot({ openSession: vi.fn() }, [service], catalog)
+    render(createElement(section.Component, { ...section.options.inject(), close: () => {}, t: translate }))
+    await screen.findByText('Vite server')
+    expect(screen.getByText('修复服务管理弹窗')).toBeTruthy()
+    expect(screen.queryByText('会话 · 4b8de650')).toBeNull()
   })
 
   it('reports a host without session navigation instead of failing to render', async () => {

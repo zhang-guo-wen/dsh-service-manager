@@ -22,7 +22,7 @@ Desktop: open **Plugins → Add plugin**, enter a local checkout path, install, 
 
 Open **Settings → Service Manager**. The collapsible tree groups **Workspace → Session → Service** and shows confirmed running services. Missing associations have dedicated fallback groups. Each service has one **Force stop** action; the page offers refresh, **Stop all**, and a **Show ended** toggle.
 
-Click a service's HTTP(S) address to open it in a new browser tab. A session row with a complete Harness session identity also offers **Open session**, which selects that session and leaves the settings page; a user-written session label is not a navigation target.
+Click a service's HTTP(S) address to open it in a new browser tab. A session row shows the name its Session list (left navigation) row shows and follows renames; when the host reports no name it falls back to the shortened session id, with the full identity in the tooltip. A session row with a complete Harness session identity also offers **Open session**, which selects that session and closes the settings page; a user-written session label is not a navigation target.
 
 **Show ended** reveals the records the host no longer reports as running: grayed rows labelled **Exited** (the registered PID has closed), **PID reused** (the registered process exited and its PID now belongs to another process), or **Status unknown** (identity could not be verified). Ended rows carry no stop action, and their tooltip holds the host's diagnostic.
 

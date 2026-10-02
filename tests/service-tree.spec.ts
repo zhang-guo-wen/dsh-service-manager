@@ -85,11 +85,19 @@ describe('session navigation targets', () => {
     expect(sessionTargetId(value)).toBe(value)
   })
 
+  it('prefers the name the Session list shows over any shortened identity', () => {
+    expect(sessionLabel(session, '修复服务管理弹窗', '会话', '无')).toBe('修复服务管理弹窗')
+    expect(sessionLabel(session, '  前后端联调  ', '会话', '无')).toBe('前后端联调')
+    // A "name" that is only the identity again must not replace the short form.
+    expect(sessionLabel(session, session, '会话', '无')).toBe('会话 · 4b8de650')
+    expect(sessionLabel(legacySession, legacySession, '会话', '无')).toBe('会话 · ea3ab92f')
+  })
+
   it('shortens both stored session identity formats and keeps user labels verbatim', () => {
-    expect(sessionLabel(session, '会话', '无')).toBe('会话 · 4b8de650')
-    expect(sessionLabel(legacySession, '会话', '无')).toBe('会话 · ea3ab92f')
-    expect(sessionLabel('开发会话', '会话', '无')).toBe('开发会话')
-    expect(sessionLabel('', '会话', '无')).toBe('无')
+    expect(sessionLabel(session, undefined, '会话', '无')).toBe('会话 · 4b8de650')
+    expect(sessionLabel(legacySession, undefined, '会话', '无')).toBe('会话 · ea3ab92f')
+    expect(sessionLabel('开发会话', undefined, '会话', '无')).toBe('开发会话')
+    expect(sessionLabel('', undefined, '会话', '无')).toBe('无')
   })
 
   it.each(['', '开发会话', '前后端联调', 'session-4b8de650', '4b8de650-ce90-484b-bacf', 'session-4b8de650-ce90-484b-bacf'])(

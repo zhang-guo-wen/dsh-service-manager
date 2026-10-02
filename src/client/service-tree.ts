@@ -98,8 +98,16 @@ export function projectLabel(project: string, fallback: string): string {
   return project.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || project || fallback
 }
 
-/** Shorten opaque session identities while preserving explicit session labels. */
-export function sessionLabel(session: string, label: string, fallback: string): string {
+const isIdentity = (value: string): boolean => sessionIdentity.test(value) || bareSessionIdentity.test(value)
+
+/**
+ * Prefer the name the Session list shows in the sidebar, then preserve explicit
+ * session labels, then shorten opaque identities. A name that is only the
+ * identity again is no improvement over the shortened form.
+ */
+export function sessionLabel(session: string, title: string | undefined, label: string, fallback: string): string {
+  const name = title?.trim()
+  if (name && !isIdentity(name)) return name
   if (!session) return fallback
   if (sessionIdentity.test(session)) return `${label} · ${session.slice(8, 16)}`
   if (bareSessionIdentity.test(session)) return `${label} · ${session.slice(0, 8)}`

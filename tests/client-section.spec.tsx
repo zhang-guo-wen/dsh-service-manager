@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ServiceRecord, ServiceView } from '../src/types.ts'
 import { zh } from '../src/client/locales.ts'
 import { ServiceSection, type ServiceFace, type ServiceSectionProps } from '../src/client/ServiceSection.tsx'
@@ -19,8 +19,12 @@ function row(id: string, name: string, project = record.project, session = recor
 // The host interpolates {name} placeholders; the fixture must do the same or assertions would read the raw template.
 const translate = (key: keyof typeof zh, params?: Record<string, unknown>) =>
   Object.entries(params ?? {}).reduce((text, [name, value]) => text.replace(`{${name}}`, String(value)), String(zh[key]))
-function fixture(rows = [row(record.id, record.name)]) {
+function fixture(rows = [row(record.id, record.name)], initialTitles?: ReadonlyMap<string, string>) {
   let services = rows
+  // The host store publishes a fresh snapshot per change; the fixture must too,
+  // or a rename would keep the identity useSyncExternalStore compares.
+  let titles = new Map(initialTitles ?? [])
+  const listeners = new Set<() => void>()
   const face: ServiceFace = {
     list: vi.fn(async () => ({ services: structuredClone(services), file: 'services.json' })),
     stop: vi.fn(async ({ ids }) => {
@@ -28,9 +32,15 @@ function fixture(rows = [row(record.id, record.name)]) {
       return { results: ids.map(id => ({ id, ok: true, message: 'Stopped' })) }
     }),
     openSession: vi.fn(),
+    ...initialTitles ? {
+      sessionTitles: () => titles,
+      subscribeSessions: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
+    } : {},
   }
-  const props = { ...face, t: translate } as ServiceSectionProps
-  return { props, face }
+  const close = vi.fn()
+  const props = { ...face, close, t: translate } as ServiceSectionProps
+  const rename = (session: string, name: string) => { titles = new Map(titles).set(session, name); listeners.forEach(listener => { listener() }) }
+  return { props, face, close, rename }
 }
 const confirmStop = () => fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: zh.forceStop, exact: true }))
 
@@ -213,6 +223,52 @@ describe('session navigation', () => {
     expect(fireEvent.click(screen.getByRole('button', { name: zh.openSession }))).toBe(false)
     expect(f.face.openSession).toHaveBeenCalledWith(session)
     expect(f.face.stop).not.toHaveBeenCalled()
+  })
+
+  it('leaves the settings panel so the opened session is visible', async () => {
+    const f = fixture([row('a', 'Backend', 'C:/work/demo', liveSession)])
+    render(<ServiceSection {...f.props} />)
+    await screen.findByText('Backend')
+    expect(f.close).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: zh.openSession }))
+    expect(f.face.openSession).toHaveBeenCalledWith(liveSession)
+    expect(f.close).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the panel open and reports the failure when the session cannot be opened', async () => {
+    const f = fixture([row('a', 'Backend', 'C:/work/demo', liveSession)])
+    render(<ServiceSection {...f.props} openSession={vi.fn(() => { throw new Error('unknown session') })} />)
+    await screen.findByText('Backend')
+    fireEvent.click(screen.getByRole('button', { name: zh.openSession }))
+    expect((await screen.findByRole('alert')).textContent).toContain('unknown session')
+    expect(f.close).not.toHaveBeenCalled()
+    expect(screen.getByText('Backend')).toBeTruthy()
+  })
+
+  it('labels a session row with the name its Session list row shows', async () => {
+    const f = fixture([row('a', 'Backend', 'C:/work/demo', liveSession)], new Map([[liveSession, '修复服务管理弹窗']]))
+    render(<ServiceSection {...f.props} />)
+    await screen.findByText('Backend')
+    expect(screen.getByText('修复服务管理弹窗')).toBeTruthy()
+    expect(screen.queryByText('会话 · 4b8de650')).toBeNull()
+  })
+
+  it('falls back to the shortened identity for sessions the list does not name', async () => {
+    const f = fixture([row('a', 'Backend', 'C:/work/demo', liveSession)], new Map())
+    render(<ServiceSection {...f.props} />)
+    await screen.findByText('Backend')
+    expect(screen.getByText('会话 · 4b8de650')).toBeTruthy()
+  })
+
+  it('follows a rename in the Session list and keeps the identity in the tooltip', async () => {
+    const f = fixture([row('a', 'Backend', 'C:/work/demo', liveSession)], new Map([[liveSession, '旧名称']]))
+    render(<ServiceSection {...f.props} />)
+    await screen.findByText('Backend')
+    expect(screen.getByText('旧名称')).toBeTruthy()
+    act(() => { f.rename(liveSession, '新名称') })
+    await screen.findByText('新名称')
+    expect(screen.queryByText('旧名称')).toBeNull()
+    expect(screen.getByTitle(liveSession)).toBeTruthy()
   })
 
   it('offers no session action for a user-written label', async () => {

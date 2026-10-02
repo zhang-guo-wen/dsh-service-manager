@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ActionResult, ListResult, MutationResult, ServiceView, StopRequest } from '../types.ts'
@@ -10,9 +10,15 @@ export interface ServiceFace {
   stop(request: StopRequest): Promise<MutationResult>
   /** Absent when the host exposes no Session navigation capability. */
   openSession?(session: string): void
+  /** Names the Session list shows for its rows; absent when the host mounts no Session catalog. */
+  sessionTitles?(): ReadonlyMap<string, string>
+  /** Watch the Session list for renames; a host without the catalog never notifies. */
+  subscribeSessions?(listener: () => void): () => void
 }
 export type ServiceSectionProps = PropsRuntime<'settings.section'> & PropsLocale<'settings.serviceManager'> & InjectFace<ServiceFace>
 const message = (error: unknown): string => error instanceof Error ? error.message : String(error)
+const noTitles: ReadonlyMap<string, string> = new Map()
+const noSubscription = (): void => {}
 
 /** Name the first failures; a batch can report more than a notice can read. */
 function describeFailures(failures: readonly ActionResult[], names: ReadonlyMap<string, string>): string {
@@ -20,7 +26,7 @@ function describeFailures(failures: readonly ActionResult[], names: ReadonlyMap<
   return failures.length > shown.length ? `${shown.join('; ')} …` : shown.join('; ')
 }
 
-export function ServiceSection({ list, stop, openSession, t }: ServiceSectionProps) {
+export function ServiceSection({ list, stop, openSession, sessionTitles, subscribeSessions, close, t }: ServiceSectionProps) {
   const [data, setData] = useState<ListResult>({ services: [], file: '' })
   const [loading, setLoading] = useState(true)
   const [loaded, setLoaded] = useState(false)
@@ -31,6 +37,11 @@ export function ServiceSection({ list, stop, openSession, t }: ServiceSectionPro
   const [stoppingAll, setStoppingAll] = useState(false)
   const mounted = useRef(false)
   const generation = useRef(0)
+  // The Session list arrives asynchronously and rows can be renamed at any time,
+  // so subscribe to the host's own store instead of reading it once.
+  const readTitles = useCallback((): ReadonlyMap<string, string> => sessionTitles?.() ?? noTitles, [sessionTitles])
+  const watchSessions = useCallback((notify: () => void): (() => void) => subscribeSessions?.(notify) ?? noSubscription, [subscribeSessions])
+  const titles = useSyncExternalStore(watchSessions, readTitles, readTitles)
 
   const refresh = useCallback(async () => {
     const revision = ++generation.current
@@ -100,7 +111,12 @@ export function ServiceSection({ list, stop, openSession, t }: ServiceSectionPro
   const jump = (session: string) => {
     if (!openSession) return
     setError('')
-    try { openSession(session) }
+    try {
+      openSession(session)
+      // This section lives inside the settings panel, so leaving it open would
+      // hide the session that just became current.
+      close?.()
+    }
     catch (err) { if (mounted.current) setError(`${t('openSessionFailed')}: ${message(err)}`) }
   }
 
@@ -133,7 +149,7 @@ export function ServiceSection({ list, stop, openSession, t }: ServiceSectionPro
               return <li key={session.session}>
                 <details className={css.session} open>
                   <summary title={session.session}>
-                    <span className={css.groupLabel}>{sessionLabel(session.session, t('session'), t('unassignedSession'))}</span>
+                    <span className={css.groupLabel}>{sessionLabel(session.session, titles.get(session.session), t('session'), t('unassignedSession'))}</span>
                     <span className={css.count}>{session.running}{showEnded && session.ended > 0 && <span className={css.countEnded} title={t('ended')}>+{session.ended}</span>}</span>
                     {target && openSession && <button type="button" className={css.jump} onClick={event => { event.preventDefault(); event.stopPropagation(); jump(target) }}>{t('openSession')}</button>}
                   </summary>
