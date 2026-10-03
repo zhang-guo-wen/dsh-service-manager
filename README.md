@@ -1,7 +1,7 @@
 # dsh-service-manager
 
-A DeepSeek Harness service registry with a **Service Manager** settings page directly after **Plugins**.
-Register existing processes and Docker containers, refresh their status, manually stop selected services, or remove their records.
+Service registry for DeepSeek Harness: register local processes and Docker containers, check status, and stop or remove records manually.
+The **Service Manager** settings page sits directly after **Plugins**.
 
 **Manual stops only.** Session completion, plugin unload, and Harness shutdown never stop registered services.
 Removing a record never stops the service or deletes containers or volumes.
