@@ -37,7 +37,8 @@
     "cordis.patch.yml",
     "LICENSE",
     "README.md",
-    "README.zh.md"
+    "README.zh.md",
+    "docs/screenshots"
   ],
   "scripts": {
     "build": "tsdown -c tsdown.config.ts && node build-client.mjs",
