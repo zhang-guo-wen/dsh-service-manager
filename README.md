@@ -8,6 +8,8 @@ AI often starts service processes for testing and forgets to stop them. Without 
 
 `dsh-service-manager` provides a unified service management page for DeepSeek Harness. It automatically collects supported background jobs, processes, and Docker containers, grouped by workspace and session, so you can inspect and stop them manually. Services stop only after user confirmation, never automatically when a session ends.
 
+In the plugin list, display names and descriptions follow the Harness language setting in English or Chinese (English is the default fallback); English names use the package name without its npm scope, Chinese names describe the purpose, and installation still uses the unchanged real package name.
+
 ## Screenshot
 
 ![Service Manager settings page](<docs/screenshots/service-manager.png>)

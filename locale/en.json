@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "dsh-service-manager",
+    "description": "Automatically discover background tasks, local processes and Docker containers; inspect status and manually stop services or remove records."
+  }
+}
