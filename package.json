@@ -1,6 +1,6 @@
 {
   "name": "@guowenzhang/dsh-service-manager",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Service registry for DeepSeek Harness: register local processes and Docker containers, check status, and stop or remove records manually",
   "type": "module",
   "license": "Apache-2.0",
