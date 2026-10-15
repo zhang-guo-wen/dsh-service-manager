@@ -11,6 +11,11 @@ export interface ProcessInfo {
   alive: boolean
 }
 
+/** One process-table read: identity, parentage, and the ownership marker when readable. */
+export interface ProcessRow extends ProcessInfo {
+  marker?: string
+}
+
 interface Metadata {
   id: string
   name: string
@@ -44,6 +49,8 @@ export interface ServiceView {
   status: ServiceStatus
   detail: string
   remaining: number
+  /** A running process created before this Harness run started. */
+  legacy?: boolean
 }
 export interface RegisterRequest {
   kind: 'process' | 'container'
@@ -60,6 +67,17 @@ export interface StopRequest { ids: string[]; force?: boolean }
 export interface RemoveRequest { ids: string[] }
 export interface ListRequest {}
 export interface ListResult { services: ServiceView[]; file: string; warnings?: string[] }
+export interface ListCandidatesRequest {}
+/** A local listening service the user can adopt into the registry. */
+export interface ServiceCandidate {
+  pid: number
+  startedAt: string
+  name: string
+  port: number
+  protocol: string
+  address: string
+}
+export interface ListCandidatesResult { candidates: ServiceCandidate[]; warnings?: string[] }
 export interface ServiceDiscovery {
   warnings?: string[]
   refresh(): Promise<void>
@@ -80,6 +98,8 @@ export interface ProcessAdapter {
   readonly host: string
   /** Omit pids for a full snapshot with parent relationships. */
   snapshot(pids?: readonly number[]): Promise<Map<number, ProcessInfo>>
+  /** The Harness process identity, used to date a record against the current run. */
+  selfIdentity?(): Promise<ProcessIdentity | undefined>
   signal(target: ProcessIdentity, force: boolean): Promise<void>
 }
 export interface ContainerAdapter {

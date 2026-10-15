@@ -16,5 +16,5 @@ function descriptor(method: string): InvocationDescriptor {
 }
 export const TYPERT_REMOTE: TypertRemoteContribution = {
   package: '@guowenzhang/dsh-service-manager',
-  descriptors: ['listServices', 'registerService', 'stopServices', 'removeServices'].map(descriptor),
+  descriptors: ['listServices', 'listCandidates', 'registerService', 'stopServices', 'removeServices'].map(descriptor),
 }

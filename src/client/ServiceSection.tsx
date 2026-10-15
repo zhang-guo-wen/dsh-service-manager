@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ActionResult, ListResult, MutationResult, ServiceView, StopRequest } from '../types.ts'
+import type { ActionResult, ListCandidatesResult, ListResult, MutationResult, RegisterRequest, RemoveRequest, ServiceCandidate, ServiceView, StopRequest } from '../types.ts'
 import { groupServices, projectLabel, sessionLabel, sessionTargetId } from './service-tree.ts'
 import css from './ServiceSection.module.css'
 
 export interface ServiceFace {
   list(): Promise<ListResult>
   stop(request: StopRequest): Promise<MutationResult>
+  remove(request: RemoveRequest): Promise<MutationResult>
+  /** Local listening services the user can adopt; the host starts one `netstat`/`ss` read per call. */
+  candidates(): Promise<ListCandidatesResult>
+  claim(request: RegisterRequest): Promise<unknown>
   /** Absent when the host exposes no Session navigation capability. */
   openSession?(session: string): void
   /** Names the Session list shows for its rows; absent when the host mounts no Session catalog. */
@@ -26,7 +30,7 @@ function describeFailures(failures: readonly ActionResult[], names: ReadonlyMap<
   return failures.length > shown.length ? `${shown.join('; ')} …` : shown.join('; ')
 }
 
-export function ServiceSection({ list, stop, openSession, sessionTitles, subscribeSessions, close, t }: ServiceSectionProps) {
+export function ServiceSection({ list, stop, remove, candidates, claim, openSession, sessionTitles, subscribeSessions, close, t }: ServiceSectionProps) {
   const [data, setData] = useState<ListResult>({ services: [], file: '' })
   const [loading, setLoading] = useState(true)
   const [loaded, setLoaded] = useState(false)
@@ -35,6 +39,12 @@ export function ServiceSection({ list, stop, openSession, sessionTitles, subscri
   const [showEnded, setShowEnded] = useState(false)
   const [action, setAction] = useState<ServiceView['record'] | null>(null)
   const [stoppingAll, setStoppingAll] = useState(false)
+  const [removing, setRemoving] = useState<ServiceView['record'] | null>(null)
+  const [stoppingLegacy, setStoppingLegacy] = useState(false)
+  const [adopting, setAdopting] = useState(false)
+  const [adoptRows, setAdoptRows] = useState<ServiceCandidate[]>([])
+  const [adoptLoading, setAdoptLoading] = useState(false)
+  const [adoptError, setAdoptError] = useState('')
   const mounted = useRef(false)
   const generation = useRef(0)
   // The Session list arrives asynchronously and rows can be renamed at any time,
@@ -72,6 +82,7 @@ export function ServiceSection({ list, stop, openSession, sessionTitles, subscri
   const ended = groups.reduce((count, group) => count + group.ended, 0)
   // Stop-all reads the full status list, so a hidden ended row never enters a batch.
   const runningServices = data.services.filter(service => service.status === 'running')
+  const legacyServices = runningServices.filter(service => service.legacy)
 
   const confirm = async () => {
     if (!action || busy) return
@@ -120,10 +131,71 @@ export function ServiceSection({ list, stop, openSession, sessionTitles, subscri
     catch (err) { if (mounted.current) setError(`${t('openSessionFailed')}: ${message(err)}`) }
   }
 
+  /** Stop every running service that predates this Harness run, after explicit confirmation. */
+  const confirmLegacy = async () => {
+    if (busy) return
+    const targets = legacyServices
+    if (!targets.length) { setStoppingLegacy(false); return }
+    const names = new Map(targets.map(service => [service.record.id, service.record.name]))
+    setBusy(true)
+    setError('')
+    try {
+      const result = await stop({ ids: targets.map(service => service.record.id), force: true })
+      const failures = result.results.filter(row => !row.ok)
+      await refresh()
+      if (!mounted.current) return
+      setStoppingLegacy(false)
+      if (failures.length) setError(`${t('stopLegacyFailed', { count: failures.length })}: ${describeFailures(failures, names)}`)
+    } catch (err) { if (mounted.current) { setStoppingLegacy(false); setError(message(err)) } }
+    finally { if (mounted.current) setBusy(false) }
+  }
+
+  /** Drop one record without touching its resource. */
+  const confirmRemove = async () => {
+    if (!removing || busy) return
+    const pending = removing
+    setBusy(true)
+    setError('')
+    try {
+      const result = await remove({ ids: [pending.id] })
+      const failures = result.results.filter(row => !row.ok)
+      await refresh()
+      if (!mounted.current) return
+      setRemoving(null)
+      if (failures.length) setError(`${t('removeRecordFailed', { count: failures.length })}: ${describeFailures(failures, new Map([[pending.id, pending.name]]))}`)
+    } catch (err) { if (mounted.current) { setRemoving(null); setError(message(err)) } }
+    finally { if (mounted.current) setBusy(false) }
+  }
+
+  const scanCandidates = useCallback(async () => {
+    setAdoptLoading(true)
+    setAdoptError('')
+    try {
+      const result = await candidates()
+      if (!mounted.current) return
+      setAdoptRows(result.candidates)
+      if (result.warnings?.length) setAdoptError(result.warnings.join('; '))
+    } catch (err) { if (mounted.current) { setAdoptRows([]); setAdoptError(message(err)) } }
+    finally { if (mounted.current) setAdoptLoading(false) }
+  }, [candidates])
+
+  const openAdopt = () => { setAdopting(true); void scanCandidates() }
+
+  /** Adopt one listening process; only the process itself is followed, never its children. */
+  const claimOne = async (candidate: ServiceCandidate) => {
+    setAdoptError('')
+    try {
+      await claim({ kind: 'process', name: `${candidate.name} (:${candidate.port})`.slice(0, 512), pid: candidate.pid, tree: false })
+      if (!mounted.current) return
+      setAdoptRows(rows => rows.filter(row => row.pid !== candidate.pid || row.port !== candidate.port))
+      await refresh()
+    } catch (err) { if (mounted.current) setAdoptError(`${candidate.name}: ${message(err)}`) }
+  }
+
   return <section className={css.section} aria-label={t('title')} aria-busy={loading || busy}>
     <header className={css.header}>
       <div>
-        <h2>{t('title')} <span className={css.total}>{running}</span>{showEnded && ended > 0 && <span className={css.total}>{t('ended')} {ended}</span>}</h2>
+        <h2>{t('title')} <span className={css.total}>{running}</span>{showEnded && ended > 0 && <span className={css.total}>{t('ended')} {ended}</span>}{legacyServices.length > 0 && <span className={css.legacyTotal} title={t('legacyTitle')}>{t('legacy')} {legacyServices.length}</span>}</h2>
         <p className={css.hint}>{t('hint')}</p>
       </div>
       <div className={css.controls}>
@@ -132,6 +204,8 @@ export function ServiceSection({ list, stop, openSession, sessionTitles, subscri
           {t('showEnded')}
         </label>
         <Button variant="ghost" size="sm" disabled={loading || busy} onClick={() => { void refresh() }}>{loading ? t('refreshing') : t('refresh')}</Button>
+        <Button variant="ghost" size="sm" disabled={loading || busy} onClick={openAdopt}>{t('adopt')}</Button>
+        {legacyServices.length > 0 && <Button variant="outline" size="sm" disabled={loading || busy} onClick={() => { setStoppingLegacy(true) }}>{t('stopLegacy')}</Button>}
         <Button variant="outline" size="sm" disabled={loading || busy || !running} onClick={() => { setStoppingAll(true) }}>{t('stopAll')}</Button>
       </div>
     </header>
@@ -154,7 +228,7 @@ export function ServiceSection({ list, stop, openSession, sessionTitles, subscri
                     {target && openSession && <button type="button" className={css.jump} onClick={event => { event.preventDefault(); event.stopPropagation(); jump(target) }}>{t('openSession')}</button>}
                   </summary>
                   <ul className={css.services} aria-label={t('services')}>
-                    {session.services.map(({ record, status, detail }) => {
+                    {session.services.map(({ record, status, detail, legacy }) => {
                       const identity = record.kind === 'process' ? String(record.pid) : record.kind === 'container' ? `${record.context} · ${record.containerId}` : record.jobId
                       return <li key={record.id} className={css.service} data-status={status}>
                         <span className={css.dot} data-status={status} title={t(status)} />
@@ -165,9 +239,10 @@ export function ServiceSection({ list, stop, openSession, sessionTitles, subscri
                             {record.url && <> · <a className={css.url} href={record.url} target="_blank" rel="noopener noreferrer" title={record.url}>{record.url}</a></>}
                           </span>
                         </div>
+                        {legacy && status === 'running' && <span className={css.legacy} title={t('legacyTitle')}>{t('legacy')}</span>}
                         {status === 'running'
                           ? <Button variant="outline" size="sm" disabled={busy || loading} onClick={() => setAction(record)}>{t('forceStop')}</Button>
-                          : <span className={css.status} title={detail || undefined}>{t(status)}</span>}
+                          : <span className={css.rowActions}><span className={css.status} title={detail || undefined}>{t(status)}</span><Button variant="ghost" size="sm" disabled={busy || loading} onClick={() => setRemoving(record)}>{t('removeRecord')}</Button></span>}
                       </li>
                     })}
                   </ul>
@@ -193,6 +268,39 @@ export function ServiceSection({ list, stop, openSession, sessionTitles, subscri
         <Button variant="primary" size="sm" disabled={busy} onClick={() => { void confirmAll() }}>{busy ? t('busy') : t('stopAll')}</Button>
       </div>}>
       <ul className={css.targets}>{runningServices.map(service => <li key={service.record.id} title={service.record.name}>{service.record.name}</li>)}</ul>
+    </Modal>
+    <Modal open={stoppingLegacy} onClose={() => { if (!busy) setStoppingLegacy(false) }} title={t('stopLegacy')} closeLabel={t('close')}
+      description={t('stopLegacyHint', { count: legacyServices.length })}
+      footer={<div className={css.actions}>
+        <Button variant="outline" size="sm" disabled={busy} onClick={() => setStoppingLegacy(false)} data-modal-autofocus>{t('cancel')}</Button>
+        <Button variant="primary" size="sm" disabled={busy} onClick={() => { void confirmLegacy() }}>{busy ? t('busy') : t('stopLegacy')}</Button>
+      </div>}>
+      <ul className={css.targets}>{legacyServices.map(service => <li key={service.record.id} title={service.record.name}>{service.record.name}</li>)}</ul>
+    </Modal>
+    <Modal open={removing !== null} onClose={() => { if (!busy) setRemoving(null) }} title={t('removeRecord')} closeLabel={t('close')}
+      description={t('removeRecordHint')}
+      footer={<div className={css.actions}>
+        <Button variant="outline" size="sm" disabled={busy} onClick={() => setRemoving(null)} data-modal-autofocus>{t('cancel')}</Button>
+        <Button variant="primary" size="sm" disabled={busy} onClick={() => { void confirmRemove() }}>{busy ? t('busy') : t('removeRecord')}</Button>
+      </div>}>
+      <p className={css.target}>{removing?.name}</p>
+    </Modal>
+    <Modal open={adopting} onClose={() => { if (!adoptLoading) setAdopting(false) }} title={t('adoptTitle')} closeLabel={t('close')}
+      description={t('adoptHint')}
+      footer={<div className={css.actions}>
+        <Button variant="ghost" size="sm" disabled={adoptLoading} onClick={() => { void scanCandidates() }}>{adoptLoading ? t('adoptScanned') : t('refresh')}</Button>
+        <Button variant="outline" size="sm" disabled={adoptLoading} onClick={() => setAdopting(false)} data-modal-autofocus>{t('close')}</Button>
+      </div>}>
+      {adoptError && <p className={css.error} role="alert">{adoptError}</p>}
+      {!adoptRows.length
+        ? <p className={css.target}>{adoptLoading ? t('adoptScanned') : t('adoptEmpty')}</p>
+        : <ul className={css.candidates}>{adoptRows.map(candidate => <li key={`${candidate.pid}:${candidate.port}`} className={css.candidate}>
+          <div className={css.info}>
+            <strong title={candidate.name}>{candidate.name}</strong>
+            <span className={css.meta}>{candidate.protocol} · {candidate.address} · PID {candidate.pid}</span>
+          </div>
+          <Button variant="outline" size="sm" disabled={adoptLoading} onClick={() => { void claimOne(candidate) }}>{t('adoptOne')}</Button>
+        </li>)}</ul>}
     </Modal>
   </section>
 }

@@ -51,7 +51,10 @@ async function boot(
 
   const remote = {
     listServices: vi.fn(async () => ({ ok: true, value: { services: structuredClone(rows), file: 'services.json' } })),
+    listCandidates: vi.fn(async () => ({ ok: true, value: { candidates: [] } })),
+    registerService: vi.fn(async (request: { name: string; pid?: number }) => ({ ok: true, value: { id: 'claimed', kind: 'process', name: request.name, pid: request.pid ?? 0, startedAt: '1', host: 'test', tree: false, pendingStop: [], project: '', session: '', url: '', createdAt: '2026-09-29T00:00:00.000Z' } })),
     stopServices: vi.fn(async ({ ids }: { ids: string[] }) => ({ ok: true, value: { results: ids.map(id => ({ id, ok: true, message: 'Stopped' })) } })),
+    removeServices: vi.fn(async ({ ids }: { ids: string[] }) => ({ ok: true, value: { results: ids.map(id => ({ id, ok: true, message: 'Record removed; service was not stopped' })) } })),
   }
   const disposals: (() => void)[] = []
   let section: { options: any; Component: (props: any) => ReactNode } | undefined

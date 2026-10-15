@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { RegistryStore } from './store.ts'
-import { NativeProcesses, processTargets } from './processes.ts'
+import { NativeProcesses, processTargets, startedBefore } from './processes.ts'
 import { DockerContainers } from './containers.ts'
 import { errorMessage, NormalStopUnsupportedError } from './errors.ts'
+import { listListeners, type Listener } from './ports.ts'
 import { idsSchema, registerSchema, stopSchema } from './schema.ts'
-import type { ActionResult, ContainerAdapter, ListResult, MutationResult, ProcessAdapter, ProcessIdentity, ProcessInfo, ProcessService, RegisterRequest, RemoveRequest, ServiceRecord, ServiceView, StopRequest } from './types.ts'
+import type { ActionResult, ContainerAdapter, ListCandidatesResult, ListResult, MutationResult, ProcessAdapter, ProcessIdentity, ProcessInfo, ProcessService, RegisterRequest, RemoveRequest, ServiceCandidate, ServiceRecord, ServiceView, StopRequest } from './types.ts'
 
 function matches(target: ProcessIdentity, snapshot: Map<number, ProcessInfo>): boolean {
   const current = snapshot.get(target.pid)
@@ -23,11 +24,18 @@ function protectedPids(snapshot: Map<number, ProcessInfo>): Set<number> {
 
 export class ServiceRegistry {
   discovery?: import('./types.ts').ServiceDiscovery
+  private instance?: Promise<ProcessIdentity | undefined>
   constructor(
     readonly store: RegistryStore,
     private readonly processes: ProcessAdapter = new NativeProcesses(),
     private readonly containers: ContainerAdapter = new DockerContainers(),
   ) {}
+
+  /** The Harness process identity, read once per run to date a record against it. */
+  private self(): Promise<ProcessIdentity | undefined> {
+    this.instance ??= this.processes.selfIdentity?.() ?? Promise.resolve(undefined)
+    return this.instance
+  }
 
   async register(request: RegisterRequest): Promise<ServiceRecord> {
     const value = registerSchema.parse(request)
@@ -66,6 +74,7 @@ export class ServiceRegistry {
       snapshotError = String(error)
       return undefined
     }) : Promise.resolve(undefined)
+    const selfPromise = pids.length ? this.self() : Promise.resolve(undefined)
     const services = await Promise.all(rows.map(async (record): Promise<ServiceView> => {
       try {
         if (record.kind === 'container') {
@@ -83,7 +92,10 @@ export class ServiceRegistry {
         if (remaining > 0) return { record, status: 'running', detail: 'A manual stop has remaining process targets', remaining }
         if (!current?.alive) return { record, status: 'stopped', detail: '', remaining: 0 }
         if (current.startedAt !== record.startedAt) return { record, status: 'changed', detail: 'PID was reused; the registered process has exited', remaining: 0 }
-        return { record, status: 'running', detail: current.name, remaining: 1 }
+        // A process created before this Harness run outlived an earlier one.
+        const self = await selfPromise
+        const legacy = self?.startedAt ? startedBefore(record.startedAt, self.startedAt) : undefined
+        return { record, status: 'running', detail: current.name, remaining: 1, ...legacy ? { legacy: true } : {} }
       } catch (error) { return { record, status: 'unknown', detail: String(error), remaining: 0 } }
     }))
     return { services: [...services.filter(row => this.discovery?.visible(row.record as ServiceRecord) !== false), ...await this.discovery?.list() ?? []], file: this.store.file, ...this.discovery?.warnings?.length ? { warnings: this.discovery.warnings } : {} }
@@ -162,6 +174,34 @@ export class ServiceRegistry {
       }
     }
     return { results }
+  }
+
+  /**
+   * Local listening services that the registry does not track yet. The read is
+   * user-triggered; adopting one is a separate explicit `register` call.
+   */
+  async candidates(): Promise<ListCandidatesResult> {
+    let listeners: Listener[]
+    try { listeners = await listListeners() }
+    catch (error) { return { candidates: [], warnings: [errorMessage(error)] } }
+    const rows = await this.store.read()
+    const recorded = new Set(rows.flatMap(row => row.kind === 'process' && row.host === this.processes.host ? [row.pid] : []))
+    const pids = [...new Set(listeners.map(listener => listener.pid))]
+      .filter(pid => pid > 4 && pid !== process.pid && !recorded.has(pid))
+      .slice(0, 200)
+    if (!pids.length) return { candidates: [] }
+    const selected = new Set(pids)
+    let snapshot: Map<number, ProcessInfo>
+    try { snapshot = await this.processes.snapshot(pids) }
+    catch (error) { return { candidates: [], warnings: [errorMessage(error)] } }
+    const candidates: ServiceCandidate[] = []
+    for (const listener of listeners) {
+      if (!selected.has(listener.pid)) continue
+      const info = snapshot.get(listener.pid)
+      if (!info?.alive || !info.startedAt) continue
+      candidates.push({ pid: listener.pid, startedAt: info.startedAt, name: info.name || `PID ${listener.pid}`, port: listener.port, protocol: listener.protocol, address: listener.address })
+    }
+    return { candidates }
   }
 
   async remove(request: RemoveRequest): Promise<MutationResult> {

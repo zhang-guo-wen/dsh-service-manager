@@ -19,7 +19,7 @@ describe('client integration', () => {
     await apply(ctx as unknown as Context)
     expect(ctx.remote.$mount).toHaveBeenCalledWith(TYPERT_REMOTE)
     expect(register.mock.calls[0]?.[0]).toMatchObject({ name: 'settings.section', id: 'service-manager', order: 15.5, locale: 'settings.serviceManager' })
-    expect(TYPERT_REMOTE.descriptors.map(row => row.method)).toEqual(['listServices', 'registerService', 'stopServices', 'removeServices'])
+    expect(TYPERT_REMOTE.descriptors.map(row => row.method)).toEqual(['listServices', 'listCandidates', 'registerService', 'stopServices', 'removeServices'])
     cleanups.forEach(fn => fn())
     expect(offRemote).toHaveBeenCalledOnce()
     expect(offLocale).toHaveBeenCalledOnce()

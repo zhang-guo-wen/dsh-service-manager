@@ -1,7 +1,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { ServiceRegistry } from './manager.ts'
-import type { ListRequest, ListResult, MutationResult, RegisterRequest, RemoveRequest, ServiceRecord, StopRequest } from './types.ts'
+import type { ListCandidatesRequest, ListCandidatesResult, ListRequest, ListResult, MutationResult, RegisterRequest, RemoveRequest, ServiceRecord, StopRequest } from './types.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context { serviceManager: ServiceManager }
@@ -14,6 +14,12 @@ export class ServiceManager extends TypertRemoteService {
   async listServices(request: ListRequest): Promise<ListResult> {
     void request
     return this.registry.list()
+  }
+
+  @Remote('listCandidates')
+  async listCandidates(request: ListCandidatesRequest): Promise<ListCandidatesResult> {
+    void request
+    return this.registry.candidates()
   }
 
   @Remote('registerService')

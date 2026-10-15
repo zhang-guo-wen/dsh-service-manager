@@ -31,6 +31,12 @@ function fixture(rows = [row(record.id, record.name)], initialTitles?: ReadonlyM
       services = services.map(service => ids.includes(service.record.id) ? { ...service, status: 'stopped', remaining: 0 } : service)
       return { results: ids.map(id => ({ id, ok: true, message: 'Stopped' })) }
     }),
+    remove: vi.fn(async ({ ids }) => {
+      services = services.filter(service => !ids.includes(service.record.id))
+      return { results: ids.map(id => ({ id, ok: true, message: 'Record removed; service was not stopped' })) }
+    }),
+    candidates: vi.fn(async () => ({ candidates: [] })),
+    claim: vi.fn(async () => ({})),
     openSession: vi.fn(),
     ...initialTitles ? {
       sessionTitles: () => titles,
@@ -78,7 +84,7 @@ describe('running service tree', () => {
     expect(within(workspaces[0]!).getByText('Backend')).toBeTruthy()
     expect(within(workspaces[1]!).getByText('Redis')).toBeTruthy()
     expect(root.querySelectorAll('details')).toHaveLength(5)
-    expect(screen.getAllByRole('button').map(button => button.textContent)).toEqual([zh.refresh, zh.stopAll, zh.forceStop, zh.forceStop, zh.forceStop, zh.forceStop])
+    expect(screen.getAllByRole('button').map(button => button.textContent)).toEqual([zh.refresh, zh.adopt, zh.stopAll, zh.forceStop, zh.forceStop, zh.forceStop, zh.forceStop])
     expect(screen.queryByRole('searchbox')).toBeNull()
     expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(false)
     expect(f.face.stop).not.toHaveBeenCalled()
@@ -334,5 +340,104 @@ describe('stop all', () => {
     render(<ServiceSection {...f.props} />)
     await screen.findByText(zh.empty)
     expect(screen.getByRole('button', { name: zh.stopAll })).toHaveProperty('disabled', true)
+  })
+})
+
+describe('leftovers from an earlier run', () => {
+  const legacyRow = (id: string, name: string): ServiceView => ({ ...row(id, name), legacy: true })
+
+  it('marks a service that was already running and stops every leftover after one confirmation', async () => {
+    const f = fixture([legacyRow('old', 'Old vite'), legacyRow('older', 'Old redis'), row('new', 'Fresh server')])
+    render(<ServiceSection {...f.props} />)
+    await screen.findByText('Old vite')
+    expect(screen.getAllByText(zh.legacy)).toHaveLength(2)
+    expect(screen.getByText(`${zh.legacy} 2`)).toBeTruthy()
+    expect(f.face.stop).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: zh.stopLegacy }))
+    const dialog = within(screen.getByRole('dialog', { name: zh.stopLegacy }))
+    expect(dialog.getByText(translate('stopLegacyHint', { count: 2 }))).toBeTruthy()
+    fireEvent.click(dialog.getByRole('button', { name: zh.stopLegacy }))
+    await waitFor(() => expect(f.face.stop).toHaveBeenCalledExactlyOnceWith({ ids: ['old', 'older'], force: true }))
+    // The current run's own service stays untouched.
+    await screen.findByText('Fresh server')
+    expect(f.face.stop).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers no leftover action when every service belongs to this run', async () => {
+    const f = fixture([row('a', 'Fresh server')])
+    render(<ServiceSection {...f.props} />)
+    await screen.findByText('Fresh server')
+    expect(screen.queryByText(zh.legacy)).toBeNull()
+    expect(screen.queryByRole('button', { name: zh.stopLegacy })).toBeNull()
+  })
+
+  it('cancels the leftover batch without stopping anything', async () => {
+    const f = fixture([legacyRow('old', 'Old vite')])
+    render(<ServiceSection {...f.props} />)
+    await screen.findByText('Old vite')
+    fireEvent.click(screen.getByRole('button', { name: zh.stopLegacy }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: zh.stopLegacy })).getByRole('button', { name: zh.cancel }))
+    expect(f.face.stop).not.toHaveBeenCalled()
+    expect(screen.getByText('Old vite')).toBeTruthy()
+  })
+})
+
+describe('record cleanup', () => {
+  it('removes an ended record without stopping its resource', async () => {
+    const f = fixture([row('a', 'Live'), row('done', 'Finished', 'C:/work/demo', record.session, 'stopped')])
+    render(<ServiceSection {...f.props} />)
+    await screen.findByText('Live')
+    fireEvent.click(screen.getByRole('checkbox'))
+    await screen.findByText('Finished')
+    fireEvent.click(screen.getByRole('button', { name: zh.removeRecord }))
+    const dialog = within(screen.getByRole('dialog', { name: zh.removeRecord }))
+    expect(dialog.getByText(zh.removeRecordHint)).toBeTruthy()
+    expect(f.face.remove).not.toHaveBeenCalled()
+    expect(f.face.stop).not.toHaveBeenCalled()
+    fireEvent.click(dialog.getByRole('button', { name: zh.removeRecord }))
+    await waitFor(() => expect(f.face.remove).toHaveBeenCalledExactlyOnceWith({ ids: ['done'] }))
+    await waitFor(() => expect(screen.queryByText('Finished')).toBeNull())
+    expect(f.face.stop).not.toHaveBeenCalled()
+    expect(screen.getByText('Live')).toBeTruthy()
+  })
+
+  it('offers no removal for a running service', async () => {
+    const f = fixture([row('a', 'Live')])
+    render(<ServiceSection {...f.props} />)
+    await screen.findByText('Live')
+    expect(screen.queryByRole('button', { name: zh.removeRecord })).toBeNull()
+    expect(f.face.remove).not.toHaveBeenCalled()
+  })
+})
+
+describe('adopting a listening service', () => {
+  const candidate = { pid: 4242, startedAt: '500', name: 'postgres.exe', port: 5432, protocol: 'TCP', address: '127.0.0.1:5432' }
+
+  it('scans on open and adopts one candidate by identity', async () => {
+    const f = fixture()
+    render(<ServiceSection {...f.props} candidates={vi.fn(async () => ({ candidates: [candidate] }))} />)
+    await screen.findByText(record.name)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: zh.adopt }))
+    const dialog = within(await screen.findByRole('dialog', { name: zh.adoptTitle }))
+    expect(dialog.getByText('postgres.exe')).toBeTruthy()
+    expect(dialog.getByText(/127\.0\.0\.1:5432 · PID 4242/)).toBeTruthy()
+    fireEvent.click(dialog.getByRole('button', { name: zh.adoptOne }))
+    await waitFor(() => expect(f.props.claim).toHaveBeenCalledExactlyOnceWith({ kind: 'process', name: 'postgres.exe (:5432)', pid: 4242, tree: false }))
+    expect(f.face.stop).not.toHaveBeenCalled()
+  })
+
+  it('reports an empty scan and a scan failure without stopping anything', async () => {
+    const f = fixture()
+    const first = render(<ServiceSection {...f.props} candidates={vi.fn(async () => ({ candidates: [] }))} />)
+    await screen.findByText(record.name)
+    fireEvent.click(screen.getByRole('button', { name: zh.adopt }))
+    expect(await screen.findByText(zh.adoptEmpty)).toBeTruthy()
+    first.unmount()
+
+    render(<ServiceSection {...f.props} candidates={vi.fn(async () => ({ candidates: [], warnings: ['netstat unavailable'] }))} />)
+    await screen.findByText(record.name)
+    fireEvent.click(screen.getByRole('button', { name: zh.adopt }))
+    expect((await screen.findByRole('alert')).textContent).toContain('netstat unavailable')
   })
 })

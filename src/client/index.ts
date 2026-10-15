@@ -4,7 +4,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
-import type { ListRequest, ListResult, MutationResult, RegisterRequest, RemoveRequest, ServiceRecord, StopRequest } from '../types.ts'
+import type { ListCandidatesRequest, ListCandidatesResult, ListRequest, ListResult, MutationResult, RegisterRequest, RemoveRequest, ServiceRecord, StopRequest } from '../types.ts'
 import { REMOTE_NAMESPACE, TYPERT_REMOTE } from '../remote.ts'
 import { NS, en, zh, type ServiceKey } from './locales.ts'
 import { ServiceSection, type ServiceFace } from './ServiceSection.tsx'
@@ -14,6 +14,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 interface RemoteService {
   listServices(request: ListRequest): Promise<RemoteResult<ListResult>>
+  listCandidates(request: ListCandidatesRequest): Promise<RemoteResult<ListCandidatesResult>>
   registerService(request: RegisterRequest): Promise<RemoteResult<ServiceRecord>>
   stopServices(request: StopRequest): Promise<RemoteResult<MutationResult>>
   removeServices(request: RemoveRequest): Promise<RemoteResult<MutationResult>>
@@ -64,6 +65,9 @@ export async function apply(ctx: Context): Promise<void> {
   const face: ServiceFace = {
     list: () => unwrap(remote().listServices({})),
     stop: request => unwrap(remote().stopServices(request)),
+    remove: request => unwrap(remote().removeServices(request)),
+    candidates: () => unwrap(remote().listCandidates({})),
+    claim: request => unwrap(remote().registerService(request)),
     // Resolved on use: the Workspace navigation service may load after this plugin.
     openSession: session => {
       const workspace = ctx.get('uiWorkspace') as SessionNavigator | undefined

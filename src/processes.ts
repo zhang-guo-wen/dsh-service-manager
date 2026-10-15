@@ -2,7 +2,8 @@ import { readdir, readFile } from 'node:fs/promises'
 import { hostname } from 'node:os'
 import { powershell } from './command.ts'
 import { NormalStopUnsupportedError } from './errors.ts'
-import type { ProcessAdapter, ProcessIdentity, ProcessInfo } from './types.ts'
+import { loadWindowsNative, windowsNativeSupported } from './windows-native.ts'
+import type { ProcessAdapter, ProcessIdentity, ProcessInfo, ProcessRow } from './types.ts'
 
 export function parseLinuxStat(pid: number, text: string, boot: string): ProcessInfo {
   const end = text.lastIndexOf(')')
@@ -10,6 +11,25 @@ export function parseLinuxStat(pid: number, text: string, boot: string): Process
   const fields = text.slice(end + 2).trim().split(/\s+/)
   if (!fields[19] || !fields[1]) throw new Error('Incomplete process stat')
   return { pid, parentPid: Number(fields[1]), startedAt: `${boot}:${fields[19]}`, name: text.slice(text.indexOf('(') + 1, end), alive: fields[0] !== 'Z' && fields[0] !== 'X' }
+}
+
+/**
+ * Order two creation identities read from the same host. Windows reports .NET
+ * ticks and Linux a boot id with the kernel start tick; anything else falls back
+ * to ISO timestamps.
+ * @param left - candidate earlier identity.
+ * @param right - candidate later identity.
+ * @returns whether left was created before right, or undefined when the two are not comparable.
+ */
+export function startedBefore(left: string, right: string): boolean | undefined {
+  if (/^\d+$/.test(left) && /^\d+$/.test(right)) return BigInt(left) < BigInt(right)
+  const leftParts = left.split(':')
+  const rightParts = right.split(':')
+  if (leftParts.length === 2 && rightParts.length === 2 && leftParts[0] === rightParts[0]
+    && /^\d+$/.test(leftParts[1]!) && /^\d+$/.test(rightParts[1]!)) return BigInt(leftParts[1]!) < BigInt(rightParts[1]!)
+  const leftMs = Date.parse(left)
+  const rightMs = Date.parse(right)
+  return Number.isFinite(leftMs) && Number.isFinite(rightMs) ? leftMs < rightMs : undefined
 }
 
 /** Collect children before parents without guessing ownership from ports or names. */
@@ -33,39 +53,29 @@ export function processTargets(root: ProcessIdentity, snapshot: Map<number, Proc
 }
 
 function isNewerChild(child: string, parent: string): boolean {
-  if (/^\d+$/.test(child) && /^\d+$/.test(parent)) return BigInt(child) >= BigInt(parent)
-  const childParts = child.split(':')
-  const parentParts = parent.split(':')
-  if (childParts.length === 2 && parentParts.length === 2 && childParts[0] === parentParts[0] && /^\d+$/.test(childParts[1]!) && /^\d+$/.test(parentParts[1]!)) return BigInt(childParts[1]!) >= BigInt(parentParts[1]!)
-  return Number.isFinite(Date.parse(child)) && Date.parse(child) >= Date.parse(parent)
+  const ordered = startedBefore(parent, child)
+  return ordered ?? (Number.isFinite(Date.parse(child)) && Date.parse(child) >= Date.parse(parent))
+}
+
+/** Merge rows into the PID-keyed view every caller expects. */
+function toMap(rows: readonly ProcessRow[]): Map<number, ProcessInfo> {
+  return new Map(rows.map(row => [row.pid, row]))
 }
 
 export class NativeProcesses implements ProcessAdapter {
   readonly host = `${process.platform}:${hostname()}`
+  private self?: Promise<ProcessIdentity | undefined>
 
   async snapshot(pids?: readonly number[]): Promise<Map<number, ProcessInfo>> {
     const selected = pids === undefined ? undefined : [...new Set(pids)]
     if (selected?.some(pid => !Number.isSafeInteger(pid) || pid <= 0)) throw new Error('Invalid process ID')
     if (selected?.length === 0) return new Map()
     if (process.platform === 'win32') {
-      // Listing needs creation identities, not a machine-wide WMI process tree.
-      const output = await powershell(selected ? `$rows=@(foreach ($targetId in @(${selected.join(',')})) {
-        try { $p=[System.Diagnostics.Process]::GetProcessById($targetId) }
-        catch [System.ArgumentException] { continue }
-        try {
-          $stamp=$null
-          try { $stamp=$p.StartTime.ToUniversalTime().Ticks.ToString() } catch {}
-          [pscustomobject]@{pid=$targetId;parentPid=0;startedAt=$stamp;name=$p.ProcessName;alive=$true}
-        } finally { $p.Dispose() }
-      }); ConvertTo-Json -InputObject $rows -Compress` : `$stamps=@{}
-      Get-Process | ForEach-Object { try { $stamps[$_.Id]=$_.StartTime.ToUniversalTime().Ticks.ToString() } catch {} }
-      $rows=@(Get-CimInstance Win32_Process | ForEach-Object {
-        $stamp=$stamps[[int]$_.ProcessId]
-        [pscustomobject]@{pid=[int]$_.ProcessId;parentPid=[int]$_.ParentProcessId;startedAt=$stamp;name=$_.Name;alive=$true}
-      }); ConvertTo-Json -InputObject $rows -Compress`)
-      const rows = JSON.parse(output) as ProcessInfo[]
-      if (!Array.isArray(rows)) throw new Error('Unexpected process snapshot')
-      return new Map(rows.filter(row => row.pid > 0).map(row => [row.pid, row]))
+      if (windowsNativeSupported()) {
+        try { return toMap((await loadWindowsNative()).snapshot(selected, false)) }
+        catch { /* The PowerShell fallback keeps identity checks working without FFI. */ }
+      }
+      return this.snapshotWindows(selected)
     }
     if (process.platform === 'linux') {
       const boot = (await readFile('/proc/sys/kernel/random/boot_id', 'utf8')).trim()
@@ -78,9 +88,39 @@ export class NativeProcesses implements ProcessAdapter {
           return { pid: Number(name), parentPid: 0, startedAt: null, name: '', alive: true }
         }
       }))
-      return new Map(rows.filter((row): row is ProcessInfo => row !== null).map(row => [row.pid, row]))
+      return toMap(rows.filter((row): row is ProcessInfo => row !== null))
     }
     throw new Error(`Unsupported process platform: ${process.platform}`)
+  }
+
+  /** The Harness process identity, used to date a record against the current run. */
+  selfIdentity(): Promise<ProcessIdentity | undefined> {
+    this.self ??= this.snapshot([process.pid]).then(info => {
+      const current = info.get(process.pid)
+      return current?.alive && current.startedAt ? { pid: current.pid, startedAt: current.startedAt } : undefined
+    }).catch(() => undefined)
+    return this.self
+  }
+
+  private async snapshotWindows(selected?: readonly number[]): Promise<Map<number, ProcessInfo>> {
+    // Listing needs creation identities, not a machine-wide WMI process tree.
+    const output = await powershell(selected ? `$rows=@(foreach ($targetId in @(${selected.join(',')})) {
+      try { $p=[System.Diagnostics.Process]::GetProcessById($targetId) }
+      catch [System.ArgumentException] { continue }
+      try {
+        $stamp=$null
+        try { $stamp=$p.StartTime.ToUniversalTime().Ticks.ToString() } catch {}
+        [pscustomobject]@{pid=$targetId;parentPid=0;startedAt=$stamp;name=$p.ProcessName;alive=$true}
+      } finally { $p.Dispose() }
+    }); ConvertTo-Json -InputObject $rows -Compress` : `$stamps=@{}
+    Get-Process | ForEach-Object { try { $stamps[$_.Id]=$_.StartTime.ToUniversalTime().Ticks.ToString() } catch {} }
+    $rows=@(Get-CimInstance Win32_Process | ForEach-Object {
+      $stamp=$stamps[[int]$_.ProcessId]
+      [pscustomobject]@{pid=[int]$_.ProcessId;parentPid=[int]$_.ParentProcessId;startedAt=$stamp;name=$_.Name;alive=$true}
+    }); ConvertTo-Json -InputObject $rows -Compress`)
+    const rows = JSON.parse(output) as ProcessInfo[]
+    if (!Array.isArray(rows)) throw new Error('Unexpected process snapshot')
+    return new Map(rows.filter(row => row.pid > 0).map(row => [row.pid, row]))
   }
 
   async signal(target: ProcessIdentity, force: boolean): Promise<void> {

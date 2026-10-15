@@ -45,4 +45,9 @@
 .targets { list-style: disc; margin: 0; padding-left: 18px; max-height: 160px; overflow: auto; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .targets li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace summary:focus-visible, .session summary:focus-visible, .url:focus-visible, .jump:focus-visible, .toggle input:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: -2px; border-radius: 4px; }
+.legacy, .legacyTotal { flex-shrink: 0; padding: 1px 6px; border-radius: var(--dsw-radius-xs); background: var(--dsw-alias-bg-layer-3); color: var(--dsw-alias-state-warn-label); font-size: 11px; line-height: 16px; white-space: nowrap; }
+.legacyTotal { font-weight: 500; }
+.rowActions { flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
+.candidates { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+.candidate { display: flex; align-items: center; gap: 10px; }
 @media (max-width: 480px) { .sessions { padding-left: 16px; padding-right: 10px; }.services { padding-left: 10px; }.service { gap: 7px; } }

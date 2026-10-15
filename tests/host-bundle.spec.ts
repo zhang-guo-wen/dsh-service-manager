@@ -25,7 +25,7 @@ describe('built plugin contract', () => {
       await fiber
       const service = ctx.get('serviceManager') as any
       expect(service).toBeDefined()
-      expect(remoteMethods(service).map(row => row.method)).toEqual(['listServices', 'registerService', 'stopServices', 'removeServices'])
+      expect(remoteMethods(service).map(row => row.method)).toEqual(['listServices', 'listCandidates', 'registerService', 'stopServices', 'removeServices'])
       // No model-facing tools: discovery is automatic and stopping is a user
       // action, so a tool registry the host hands over stays empty.
       await vi.waitFor(() => expect(registered.size).toBe(0))
