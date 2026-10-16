@@ -30,3 +30,19 @@ describe('service section header layout', () => {
     expect(rule('.controls')).toMatch(/flex-wrap:\s*wrap/)
   })
 })
+
+describe('service row layout', () => {
+  it('keeps the leftover marker on the process line so the row action is not pushed onto its own line', () => {
+    // The marker lives in the process-line box inside the info block; only the
+    // identity text yields (ellipsis), so the row keeps its action beside it.
+    expect(rule('.metaLine')).toMatch(/display:\s*flex/)
+    expect(rule('.metaLine')).toMatch(/min-width:\s*0/)
+    expect(rule('.meta')).toMatch(/min-width:\s*0/)
+    expect(rule('.meta')).toMatch(/text-overflow:\s*ellipsis/)
+    const legacy = /\.legacy,\s*\.legacyTotal\s*\{([^}]*)\}/.exec(css)?.[1] ?? ''
+    expect(legacy).toMatch(/flex-shrink:\s*0/)
+    // The marker reads at the process line's own size, not the caption scale.
+    expect(legacy).toMatch(/font:\s*var\(--dsw-font-xxs-12\)/)
+    expect(rule('.meta')).toMatch(/font:\s*var\(--dsw-font-xxs-12\)/)
+  })
+})

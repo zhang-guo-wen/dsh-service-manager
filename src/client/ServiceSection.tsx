@@ -312,12 +312,17 @@ export function ServiceSection({ list, stop, remove, candidates, claim, openSess
                             <StateDot state={STATUS_DOT[status]} size={8} />
                             <div className={css.info}>
                               <strong title={record.name}>{record.name}</strong>
-                              <span className={css.meta} title={status === 'running' ? identity : detail || identity}>
-                                {t(record.kind)} · {record.kind === 'process' ? `PID ${record.pid}` : record.kind === 'container' ? record.containerId.slice(0, 12) : record.jobId}
-                                {record.url && <> · <a className={css.url} href={record.url} target="_blank" rel="noopener noreferrer" title={record.url}>{record.url}</a></>}
+                              {/* The process line carries the leftover marker. On the row
+                                  itself the marker took width from the trailing action
+                                  and pushed that button onto a second line. */}
+                              <span className={css.metaLine}>
+                                <span className={css.meta} title={status === 'running' ? identity : detail || identity}>
+                                  {t(record.kind)} · {record.kind === 'process' ? `PID ${record.pid}` : record.kind === 'container' ? record.containerId.slice(0, 12) : record.jobId}
+                                  {record.url && <> · <a className={css.url} href={record.url} target="_blank" rel="noopener noreferrer" title={record.url}>{record.url}</a></>}
+                                </span>
+                                {legacy && status === 'running' && <span className={css.legacy} title={t('legacyTitle')}>{t('legacy')}</span>}
                               </span>
                             </div>
-                            {legacy && status === 'running' && <span className={css.legacy} title={t('legacyTitle')}>{t('legacy')}</span>}
                             <span className={css.when} title={record.createdAt}>{trackedAt(record.createdAt)}</span>
                             <span className={css.status} title={detail || undefined}>{t(status)}</span>
                             {status === 'running'

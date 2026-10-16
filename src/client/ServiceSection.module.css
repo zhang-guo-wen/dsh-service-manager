@@ -247,7 +247,20 @@
   white-space: nowrap;
 }
 
+/* The process line: the identity shrinks with an ellipsis, while the leftover
+ * marker keeps its width at the end of the same line. As a child of the row the
+ * marker competed with the trailing action for width and wrapped that button
+ * onto a second line. */
+.metaLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .meta {
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -274,7 +287,9 @@
 .service > button { flex-shrink: 0; }
 
 /* A leftover marker keeps its explanatory title, which the Tag primitive's
- * props do not carry. */
+ * props do not carry. The row marker sits inside `.metaLine` and never shrinks
+ * away; the header total stays on the heading line. It reads at the process
+ * line's own size rather than the caption scale it started on. */
 .legacy,
 .legacyTotal {
   flex-shrink: 0;
@@ -282,7 +297,7 @@
   border-radius: var(--dsw-radius-xs);
   background: var(--dsw-alias-bg-layer-3);
   color: var(--dsw-alias-state-warn-label);
-  font: var(--dsw-font-xxxs-11);
+  font: var(--dsw-font-xxs-12);
   white-space: nowrap;
 }
 

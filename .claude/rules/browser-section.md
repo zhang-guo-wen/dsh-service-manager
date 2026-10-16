@@ -20,5 +20,7 @@ paths:
   failure with a retry, and report success next to the section.
 - Running status is a word beside a host `StateDot`, never colour alone. The
   leftover marker stays a plain span because `Tag` cannot carry its explanatory
-  title, and the test doubles in `tests/client-section.spec.tsx` and
-  `tests/client-bundle.spec.tsx` mirror whichever primitives the section uses.
+  title, and it sits inside the process line (`.metaLine`) instead of on the
+  row: as a row child it took width from the trailing action and wrapped that
+  button onto its own line. The test doubles in `tests/client-section.spec.tsx`
+  and `tests/client-bundle.spec.tsx` mirror whichever primitives the section uses.

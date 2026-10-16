@@ -474,6 +474,19 @@ describe('stop all', () => {
 describe('leftovers from an earlier run', () => {
   const legacyRow = (id: string, name: string): ServiceView => ({ ...row(id, name), legacy: true })
 
+  it('keeps the leftover marker on the process line instead of the row action', async () => {
+    const f = fixture([legacyRow('old', 'Old vite')])
+    render(<ServiceSection {...f.props} />)
+    await screen.findByText('Old vite')
+    const row = screen.getByText('Old vite').closest('li') as HTMLElement
+    const identity = within(row).getByText(/PID 12345/)
+    const marker = within(row).getByText(zh.legacy)
+    // Both sit in the process-line box, so the marker no longer takes width
+    // from the row's trailing action.
+    expect(marker.parentElement).toBe(identity.parentElement)
+    expect(row.lastElementChild?.textContent).toBe(zh.forceStop)
+  })
+
   it('marks a service that was already running and stops every leftover after one confirmation', async () => {
     const f = fixture([legacyRow('old', 'Old vite'), legacyRow('older', 'Old redis'), row('new', 'Fresh server')])
     render(<ServiceSection {...f.props} />)
