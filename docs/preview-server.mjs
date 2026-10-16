@@ -12,6 +12,9 @@ const server = await createServer({
     alias: [
       { find: '@deepseek-ai/dsh-client-ui-primitives', replacement: resolve(root, 'docs/preview-primitives.ts') },
       { find: '@preview-harness', replacement: resolve(harness, 'packages/client') },
+      // The checkout has no installed node_modules, so the primitives' own
+      // `clsx` import resolves to this shim.
+      { find: 'clsx', replacement: resolve(root, 'docs/preview-clsx.ts') },
     ],
   },
   server: { host: '127.0.0.1', port: 4317, strictPort: true, fs: { allow: [root, harness] } },

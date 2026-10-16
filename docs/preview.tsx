@@ -3,10 +3,19 @@ import { ServiceSection } from '../src/client/ServiceSection.tsx'
 import { zh } from '../src/client/locales.ts'
 import type { ServiceView } from '../src/types.ts'
 import type { ServiceFace } from '../src/client/ServiceSection.tsx'
+// The same stylesheet set the host ships (`ui-theme/src/client/styles.ts`), so
+// the preview shows both palettes instead of design-platform alone.
+import '@preview-harness/ui-theme/src/styles/base.css'
+import '@preview-harness/ui-theme/src/styles/corner-shape.css'
 import '@preview-harness/ui-theme/src/styles/design-platform.css'
+import '@preview-harness/ui-theme/src/styles/focus.css'
+import '@preview-harness/ui-theme/src/styles/scrollbar.css'
 import './preview.css'
 
 const meta = { project: 'C:/02-codespace/Jianmen', session: 'session-4b8de650-ce90-484b-bacf-63c1d926ecef', url: '', createdAt: '2026-09-29T00:00:00.000Z' }
+// Two services that predate this run, so the preview always exercises the
+// leftover marker on the process line.
+const legacyMeta = { ...meta, session: 'MCP 管理插件页面布局优化', createdAt: new Date(Date.now() - 11 * 3_600_000).toISOString() }
 let services: ServiceView[] = [
   { record: { ...meta, id: '11111111-1111-4111-8111-111111111111', name: '前端开发服务器', kind: 'process', pid: 24816, startedAt: '63899911111', host: 'win32:dev', tree: true, pendingStop: [], url: 'http://localhost:5173' }, status: 'running', detail: 'node.exe', remaining: 1 },
   { record: { ...meta, id: '22222222-2222-4222-8222-222222222222', name: 'Redis 开发容器', kind: 'container', containerId: 'a4d820'.padEnd(64, 'b'), context: 'desktop-linux' }, status: 'running', detail: 'running; restart=no', remaining: 1 },
@@ -15,6 +24,8 @@ let services: ServiceView[] = [
   { record: { ...meta, id: '77777777-7777-4777-8777-777777777777', name: '受限进程', kind: 'process', pid: 51200, startedAt: '63899744444', host: 'win32:dev', tree: false, pendingStop: [] }, status: 'unknown', detail: 'Process identity is inaccessible', remaining: 0 },
   { record: { ...meta, session: '报表预览', id: '44444444-4444-4444-8444-444444444444', name: '报表预览服务器', kind: 'process', pid: 29981, startedAt: '63899722222', host: 'win32:dev', tree: false, pendingStop: [] }, status: 'running', detail: '', remaining: 1 },
   { record: { ...meta, project: 'C:/02-codespace/DeepSeek', session: '前后端联调', name: '服务管理界面预览', kind: 'process', pid: 19920, startedAt: '63899722222', host: 'win32:dev', tree: false, pendingStop: [] }, status: 'running', detail: '', remaining: 1 },
+  { record: { ...legacyMeta, id: '88888888-8888-4888-8888-888888888888', name: 'cmd.exe', kind: 'process', pid: 52728, startedAt: '63899725555', host: 'win32:dev', tree: false, pendingStop: [] }, status: 'running', detail: 'cmd.exe', remaining: 1, legacy: true },
+  { record: { ...legacyMeta, id: '99999999-9999-4999-8999-999999999999', name: 'conhost.exe', kind: 'process', pid: 45836, startedAt: '63899726666', host: 'win32:dev', tree: false, pendingStop: [] }, status: 'running', detail: 'conhost.exe', remaining: 1, legacy: true },
 ]
 const face: ServiceFace = {
   list: async () => ({ services: structuredClone(services), file: 'C:\\Users\\dev\\.dsh\\service-manager\\services.json' }),
