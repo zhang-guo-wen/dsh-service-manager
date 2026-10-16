@@ -17,6 +17,12 @@ afterEach(cleanup)
 const primitives = {
   Button: ({ variant, size, children, ...props }: any) => <button type="button" {...props}>{children}</button>,
   Modal: ({ open, title, description, children, footer }: any) => open ? <div role="dialog" aria-label={title}><h2>{title}</h2><p>{description}</p>{children}{footer}</div> : null,
+  Tag: ({ children }: any) => <span>{children}</span>,
+  StateDot: ({ state }: any) => <span data-state={state} aria-hidden="true" />,
+  relativeTime: (at: number, now: number) => {
+    const minutes = Math.max(0, Math.round((now - at) / 60_000))
+    return minutes < 1 ? { unit: 'now', n: 0 } : { unit: 'minutes', n: minutes }
+  },
 }
 const externals: Record<string, unknown> = {
   'react': React,

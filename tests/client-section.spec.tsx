@@ -6,9 +6,25 @@ import { zh } from '../src/client/locales.ts'
 import { ServiceSection, type ServiceFace, type ServiceSectionProps } from '../src/client/ServiceSection.tsx'
 
 // Keep HTML button semantics and dialogs while the host owns its primitives.
+// `relativeTime` reimplements the host's documented buckets so the assertions
+// read this section's own wiring (which key, which params), not the host maths.
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   Button: ({ variant, size, children, ...props }: any) => <button type="button" {...props}>{children}</button>,
   Modal: ({ open, title, description, children, footer }: any) => open ? <div role="dialog" aria-label={title}><h2>{title}</h2><p>{description}</p>{children}{footer}</div> : null,
+  Tag: ({ children }: any) => <span>{children}</span>,
+  StateDot: ({ state }: any) => <span data-state={state} aria-hidden="true" />,
+  relativeTime: (at: number, now: number) => {
+    const minutes = Math.max(0, Math.round((now - at) / 60_000))
+    if (minutes < 1) return { unit: 'now', n: 0 }
+    if (minutes < 60) return { unit: 'minutes', n: minutes }
+    const hours = Math.round(minutes / 60)
+    if (hours < 24) return { unit: 'hours', n: hours }
+    const days = Math.round(hours / 24)
+    if (days < 30) return { unit: 'days', n: days }
+    const months = Math.round(days / 30)
+    if (months < 12) return { unit: 'months', n: months }
+    return { unit: 'years', n: Math.round(months / 12) }
+  },
 }))
 afterEach(cleanup)
 const record: ServiceRecord = { id: '00000000-0000-4000-8000-000000000001', kind: 'process', name: 'Vite server', pid: 12345, startedAt: '100', host: 'test', tree: false, pendingStop: [], project: 'C:/work/demo', session: '开发会话', url: '', createdAt: '2026-09-29T00:00:00.000Z' }
@@ -170,16 +186,125 @@ describe('running service tree', () => {
     expect(screen.queryByText(zh.empty)).toBeNull()
   })
 
-  it('clears stale rows when status refresh fails', async () => {
+  it('keeps the last rows and the list itself on screen when a status refresh fails, then retries in place', async () => {
     const f = fixture()
-    const list = vi.fn<ServiceFace['list']>().mockResolvedValueOnce(await f.face.list()).mockRejectedValueOnce(new Error('Query unavailable'))
+    const list = vi.fn<ServiceFace['list']>().mockResolvedValueOnce(await f.face.list()).mockRejectedValueOnce(new Error('Query unavailable')).mockResolvedValueOnce(await f.face.list())
     render(<ServiceSection {...f.props} list={list} />)
     await screen.findByText(record.name)
+    const listNode = screen.getByRole('list', { name: zh.workspace })
+
     fireEvent.click(screen.getByRole('button', { name: zh.refresh }))
-    await screen.findByRole('alert')
-    expect(screen.queryByText(record.name)).toBeNull()
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('Query unavailable')
+    expect(alert.textContent).toContain(zh.staleHint)
+    // The rows and their scroll container are the same nodes: nothing remounted.
+    expect(screen.getByText(record.name)).toBeTruthy()
+    expect(screen.getByRole('list', { name: zh.workspace })).toBe(listNode)
     expect(screen.queryByText(zh.empty)).toBeNull()
-    expect(screen.getByText(zh.loadFailed)).toBeTruthy()
+    expect(screen.queryByText(zh.loadFailed)).toBeNull()
+
+    fireEvent.click(within(alert).getByRole('button', { name: zh.retry }))
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(3))
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+  })
+
+  it('reports a first read that never succeeded with its own retry', async () => {
+    const f = fixture()
+    const list = vi.fn<ServiceFace['list']>().mockRejectedValueOnce(new Error('Query unavailable')).mockResolvedValueOnce(await f.face.list())
+    render(<ServiceSection {...f.props} list={list} />)
+    expect(await screen.findByText(zh.loadFailed)).toBeTruthy()
+    expect(screen.queryByText(zh.empty)).toBeNull()
+    expect(screen.getByRole('alert').textContent).toContain('Query unavailable')
+
+    fireEvent.click(screen.getByRole('button', { name: zh.retry }))
+    expect(await screen.findByText(record.name)).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('names every status in words beside the host dot', async () => {
+    const f = fixture([
+      row('run', 'Live', 'C:/work/demo', liveSession),
+      row('stop', 'Exited', 'C:/work/demo', liveSession, 'stopped'),
+      row('reuse', 'Reused', 'C:/work/demo', liveSession, 'changed'),
+    ])
+    const { container } = render(<ServiceSection {...f.props} />)
+    await screen.findByText('Live')
+    fireEvent.click(screen.getByRole('checkbox'))
+    await screen.findByText('Exited')
+
+    const cases: [string, string, string][] = [['Live', 'done', zh.running], ['Exited', 'idle', zh.stopped], ['Reused', 'warning', zh.changed]]
+    for (const [name, dot, label] of cases) {
+      const service = screen.getByText(name).closest('li') as HTMLElement
+      expect(service.querySelector('[data-state]')?.getAttribute('data-state')).toBe(dot)
+      expect(within(service).getByText(label)).toBeTruthy()
+    }
+    expect(container.querySelectorAll('[data-state]').length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('labels a row with the host relative-time bucket for when it was tracked', async () => {
+    const tracked: ServiceView = {
+      ...row('tracked', 'Tracked'),
+      record: { ...record, id: 'tracked', name: 'Tracked', createdAt: new Date(Date.now() - 5 * 60_000).toISOString() },
+    }
+    const f = fixture([tracked])
+    render(<ServiceSection {...f.props} />)
+    await screen.findByText('Tracked')
+    expect(screen.getByText(translate('trackedFor', { time: translate('timeMinutes', { count: 5 }) }))).toBeTruthy()
+    expect(screen.getByText(translate('trackedFor', { time: translate('timeMinutes', { count: 5 }) })).getAttribute('title')).toBe(tracked.record.createdAt)
+  })
+
+  it('offers a next step from the empty state instead of only naming the state', async () => {
+    const f = fixture([])
+    render(<ServiceSection {...f.props} />)
+    await screen.findByText(zh.empty)
+    expect(screen.getByText(zh.emptyHint)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: zh.emptyAction }))
+    expect(await screen.findByRole('dialog', { name: zh.adoptTitle })).toBeTruthy()
+  })
+
+  it('reports a successful stop next to the section and keeps a failed one in its dialog with a retry', async () => {
+    const f = fixture()
+    const stop = vi.fn<ServiceFace['stop']>()
+      .mockRejectedValueOnce(new Error('stop refused'))
+      .mockResolvedValueOnce({ results: [{ id: record.id, ok: true, message: 'Stopped' }] })
+    const view = render(<ServiceSection {...f.props} stop={stop} />)
+    await screen.findByText(record.name)
+    fireEvent.click(screen.getByRole('button', { name: zh.forceStop }))
+    confirmStop()
+
+    // Failure: the dialog stays with its target and the retry inside it.
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('stop refused')
+    expect(alert.textContent).toContain(zh.dialogRetryHint)
+    const dialog = within(screen.getByRole('dialog', { name: zh.forceStop }))
+    expect(dialog.getByText(record.name)).toBeTruthy()
+
+    fireEvent.click(within(alert).getByRole('button', { name: zh.retry }))
+    await waitFor(() => expect(stop).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(screen.getByRole('status').textContent).toBe(zh.stoppedOne)
+    view.unmount()
+  })
+
+  it('shows the in-flight state of a running write', async () => {
+    const f = fixture()
+    let finish!: () => void
+    const stop = vi.fn<ServiceFace['stop']>(() => new Promise(resolve => { finish = () => resolve({ results: [{ id: record.id, ok: true, message: 'Stopped' }] }) }))
+    render(<ServiceSection {...f.props} stop={stop} />)
+    await screen.findByText(record.name)
+    fireEvent.click(screen.getByRole('button', { name: zh.forceStop }))
+    confirmStop()
+
+    const dialog = within(screen.getByRole('dialog', { name: zh.forceStop }))
+    // The busy line and the confirm button both name the write in progress.
+    await waitFor(() => expect(dialog.getAllByText(zh.busy)).toHaveLength(2))
+    expect(dialog.getByRole('button', { name: zh.busy })).toHaveProperty('disabled', true)
+    fireEvent.click(dialog.getByRole('button', { name: zh.cancel }))
+    // The dialog cannot be dismissed mid-write.
+    expect(screen.getByRole('dialog', { name: zh.forceStop })).toBeTruthy()
+
+    await act(async () => { finish() })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   })
 })
 

@@ -25,6 +25,13 @@ export const zh = {
   adoptFailed: '有 {count} 个服务未能认领',
   cancel: '取消', close: '关闭', busy: '停止中…', error: '操作未完成',
   discoveryWarning: '部分资源未能自动发现',
+  retry: '重试', staleHint: '下面是上次成功读取的结果。', dialogRetryHint: '未执行成功，可以重试。',
+  stoppedOne: '服务已停止', stoppedAll: '已关闭全部正在运行的服务', stoppedLegacy: '已停止遗留服务',
+  removedOne: '记录已移除', claimedOne: '已开始跟踪 {name}', removing: '移除中…', claiming: '跟踪中…',
+  emptyAction: '扫描本机监听中的服务',
+  trackedFor: '已跟踪 {time}',
+  timeNow: '刚刚', timeMinutes: '{count} 分钟', timeHours: '{count} 小时',
+  timeDays: '{count} 天', timeMonths: '{count} 个月', timeYears: '{count} 年',
 } as const
 export type ServiceKey = keyof typeof zh
 export const en: Record<ServiceKey, string> = {
@@ -53,4 +60,11 @@ export const en: Record<ServiceKey, string> = {
   adoptFailed: '{count} services could not be tracked',
   cancel: 'Cancel', close: 'Close', busy: 'Stopping…', error: 'Action incomplete',
   discoveryWarning: 'Some resources could not be discovered',
+  retry: 'Retry', staleHint: 'The list below is the last successful read.', dialogRetryHint: 'Nothing was applied; you can retry.',
+  stoppedOne: 'Service stopped', stoppedAll: 'All running services stopped', stoppedLegacy: 'Leftovers stopped',
+  removedOne: 'Record removed', claimedOne: 'Now tracking {name}', removing: 'Removing…', claiming: 'Tracking…',
+  emptyAction: 'Scan listening services',
+  trackedFor: 'tracked {time}',
+  timeNow: 'now', timeMinutes: '{count}min', timeHours: '{count}h',
+  timeDays: '{count}d', timeMonths: '{count}mo', timeYears: '{count}y',
 }

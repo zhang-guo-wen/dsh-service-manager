@@ -19,7 +19,7 @@ AI often starts service processes for testing and forgets to stop them. Without 
 
 ![Service Manager settings page](<docs/screenshots/service-manager.png>)
 
-Open **Settings → Service Manager** to view running services, force-stop one or stop all, clean up leftovers that predate this run, remove ended records (the record only, never the resource), and scan local listening ports to adopt services that are not tracked yet.
+Open **Settings → Service Manager** to view running services, force-stop one or stop all, clean up leftovers that predate this run, remove ended records (the record only, never the resource), and scan local listening ports to adopt services that are not tracked yet. A failed refresh keeps the last successful list and says so; stopping, removing, and adopting each report in progress, success, and failure, and a failure keeps its data and retries in place; every row names its status beside the colour dot.
 
 ## Install
 

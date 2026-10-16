@@ -1,53 +1,403 @@
-.section { display: flex; flex-direction: column; gap: 20px; width: 100%; color: var(--dsw-alias-label-primary); font-size: 13px; }
-.header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-.controls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; flex-shrink: 0; }
-.toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--dsw-alias-label-secondary); font-size: 12px; cursor: pointer; user-select: none; }
-.toggle input { margin: 0; accent-color: var(--dsw-alias-state-business-primary); cursor: pointer; }
-.header h2 { display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 600; margin: 0 0 6px; }
-.total { padding: 1px 7px; border-radius: 6px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); font-size: 12px; font-weight: 500; }
-.hint, .meta { color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 1.6; }
-.hint { margin: 0; }
-.workspaces, .sessions, .services { list-style: none; padding: 0; margin: 0; }
-.workspaces { display: flex; flex-direction: column; gap: 16px; }
-.workspace { border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 10px; overflow: hidden; }
-.workspace > summary { background: var(--dsw-alias-bg-layer-1); padding: 12px 14px; font-weight: 600; }
-.workspace summary, .session summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; }
-.workspace summary::-webkit-details-marker, .session summary::-webkit-details-marker { display: none; }
-.workspace summary::before, .session summary::before { content: ''; width: 5px; height: 5px; border-right: 1.5px solid var(--dsw-alias-label-tertiary); border-bottom: 1.5px solid var(--dsw-alias-label-tertiary); transform: rotate(-45deg); flex-shrink: 0; }
-.workspace[open] > summary::before, .session[open] > summary::before { transform: rotate(45deg); }
-.groupLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.count { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; font-size: 11px; font-weight: 400; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
-.countEnded { color: var(--dsw-alias-label-tertiary); opacity: 0.8; }
-.jump { flex-shrink: 0; border: 0; padding: 2px 4px; background: none; color: var(--dsw-alias-state-business-primary); font: inherit; font-size: 12px; cursor: pointer; border-radius: 4px; }
-.jump:hover { text-decoration: underline; text-underline-offset: 2px; }
+/* The service section lives inside the host's settings dialog, so it follows
+ * BASELINE §3.3: its own container, a 760px cap, and no 960px page column.
+ * The host owns the pane padding; this sheet owns the row rhythm. */
+.section {
+  container: service-manager / inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  max-width: 760px;
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xs-13);
+}
+
+/* The heading keeps a minimum usable width and the 297px action row moves to its
+ * own line when it cannot sit beside it. 250px + 12px gap + 297px = 559px, which
+ * stays under the 564px reference column, so the desktop tiers keep the single
+ * row they had; only columns that would crush the title (or push the row past
+ * the content area) stack. */
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.heading {
+  flex: 1 1 250px;
+  min-width: min(250px, 100%);
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+}
+
+/* Whole-row target: the checkbox keeps its native size, the label carries the
+ * touch area (44px on a coarse pointer). */
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xxs-12);
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle input {
+  margin: 0;
+  accent-color: var(--dsw-alias-state-business-primary);
+  cursor: pointer;
+}
+
+.header h2 {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 6px;
+  font: var(--dsw-font-s-strong-14);
+}
+
+.hint {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxs-12);
+}
+
+/* A read that failed while rows were on screen: the rows stay and this band
+ * says they are the last successful read. */
+.error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0;
+  color: var(--dsw-alias-state-error-primary);
+  font: var(--dsw-font-xxs-12);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Outcome of the last action, next to the section rather than a toast. */
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--dsw-alias-state-success-primary);
+  font: var(--dsw-font-xxs-12);
+}
+
+/* In-flight label inside a dialog or a candidate row. */
+.busy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxs-12);
+}
+
+.busy::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  corner-shape: round;
+  background: var(--dsw-alias-state-business-primary);
+  content: '';
+}
+
+.workspaces,
+.sessions,
+.services {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.workspaces {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.workspace {
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-lg);
+  overflow: hidden;
+}
+
+.workspace > summary {
+  background: var(--dsw-alias-bg-layer-1);
+  padding: 12px 14px;
+  font-weight: 600;
+}
+
+.workspace summary,
+.session summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.workspace summary::-webkit-details-marker,
+.session summary::-webkit-details-marker { display: none; }
+
+.workspace summary::before,
+.session summary::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid var(--dsw-alias-label-tertiary);
+  border-bottom: 1.5px solid var(--dsw-alias-label-tertiary);
+  transform: rotate(-45deg);
+  flex-shrink: 0;
+}
+
+.workspace[open] > summary::before,
+.session[open] > summary::before { transform: rotate(45deg); }
+
+.groupLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxs-12);
+  font-variant-numeric: tabular-nums;
+}
+
+.countEnded {
+  color: var(--dsw-alias-label-tertiary);
+  opacity: 0.8;
+}
+
+.jump {
+  flex-shrink: 0;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--dsw-radius-xs);
+  background: none;
+  color: var(--dsw-alias-state-business-primary);
+  font: var(--dsw-font-xxs-12);
+  cursor: pointer;
+}
+
+.jump:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .sessions { padding: 4px 14px 10px 24px; }
-.session > summary { padding: 10px 0; color: var(--dsw-alias-label-secondary); font-size: 12px; }
-.services { margin-left: 2px; padding-left: 16px; border-left: 1px solid var(--dsw-alias-border-l2); }
-.service { display: flex; align-items: center; gap: 10px; padding: 10px 0; }
+
+.session > summary {
+  padding: 10px 0;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xxs-12);
+}
+
+.services {
+  margin-left: 2px;
+  padding-left: 16px;
+  border-left: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.service {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding: 10px 0;
+}
+
 .service + .service { border-top: 0.5px solid var(--dsw-alias-border-l2); }
-.dot, .emptyDot { width: 6px; height: 6px; border-radius: 50%; background: var(--dsw-alias-state-success-primary); flex-shrink: 0; }
-.dot[data-status='stopped'], .dot[data-status='changed'], .dot[data-status='unknown'] { background: var(--dsw-alias-label-tertiary); opacity: 0.4; }
-.status { flex-shrink: 0; color: var(--dsw-alias-label-tertiary); font-size: 12px; }
-.service[data-status='stopped'] .info strong, .service[data-status='changed'] .info strong, .service[data-status='unknown'] .info strong { font-weight: 400; color: var(--dsw-alias-label-secondary); }
-.info { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.info strong { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
-.url { color: var(--dsw-alias-state-business-primary); text-decoration: underline; text-underline-offset: 2px; }
+
+.status {
+  flex-shrink: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxs-12);
+}
+
+.service[data-status='stopped'] .info strong,
+.service[data-status='changed'] .info strong,
+.service[data-status='unknown'] .info strong {
+  font-weight: 400;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.info {
+  flex: 1 1 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.info strong {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxs-12);
+}
+
+/* The row's trailing time label: when this plugin started tracking the record. */
+.when {
+  flex-shrink: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxs-12);
+  font-variant-numeric: tabular-nums;
+}
+
+.url {
+  color: var(--dsw-alias-state-business-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .url:hover { text-decoration-thickness: 2px; }
+
 .service > button { flex-shrink: 0; }
-.empty { padding: 64px 16px; text-align: center; color: var(--dsw-alias-label-secondary); font-size: 13px; }
-.emptyDot { display: block; width: 8px; height: 8px; margin: 0 auto 16px; background: var(--dsw-alias-label-tertiary); opacity: 0.4; }
-.empty strong { font-weight: 500; }
-.empty p { margin: 8px 0 0; font-size: 12px; color: var(--dsw-alias-label-tertiary); }
-.error { color: var(--dsw-alias-state-error-primary); font-size: 12px; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.actions { display: flex; justify-content: flex-end; gap: 8px; }
-.target { color: var(--dsw-alias-label-primary); font-size: 13px; font-weight: 600; overflow-wrap: anywhere; margin: 0 0 16px; }
-.targets { list-style: disc; margin: 0; padding-left: 18px; max-height: 160px; overflow: auto; color: var(--dsw-alias-label-secondary); font-size: 12px; }
-.targets li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workspace summary:focus-visible, .session summary:focus-visible, .url:focus-visible, .jump:focus-visible, .toggle input:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: -2px; border-radius: 4px; }
-.legacy, .legacyTotal { flex-shrink: 0; padding: 1px 6px; border-radius: var(--dsw-radius-xs); background: var(--dsw-alias-bg-layer-3); color: var(--dsw-alias-state-warn-label); font-size: 11px; line-height: 16px; white-space: nowrap; }
+
+/* A leftover marker keeps its explanatory title, which the Tag primitive's
+ * props do not carry. */
+.legacy,
+.legacyTotal {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: var(--dsw-radius-xs);
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-state-warn-label);
+  font: var(--dsw-font-xxxs-11);
+  white-space: nowrap;
+}
+
 .legacyTotal { font-weight: 500; }
-.rowActions { flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
-.candidates { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
-.candidate { display: flex; align-items: center; gap: 10px; }
-@media (max-width: 480px) { .sessions { padding-left: 16px; padding-right: 10px; }.services { padding-left: 10px; }.service { gap: 7px; } }
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 64px 16px;
+  text-align: center;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xs-13);
+}
+
+.empty strong { font-weight: 500; }
+
+.empty p {
+  margin: 0;
+  max-width: 46ch;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxs-12);
+}
+
+.emptyAction { margin-top: 10px; }
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.target {
+  margin: 0 0 16px;
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xs-13);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.targets {
+  list-style: disc;
+  margin: 0;
+  padding-left: 18px;
+  max-height: 160px;
+  overflow: auto;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xxs-12);
+}
+
+.targets li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.candidates {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 240px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.candidate {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+}
+
+.candidate .info { flex: 1 1 160px; }
+
+.workspace summary:focus-visible,
+.session summary:focus-visible,
+.url:focus-visible,
+.jump:focus-visible,
+.toggle input:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 2px;
+  border-radius: var(--dsw-radius-xs);
+}
+
+/* The settings column is narrow on a phone: nested indentation gives way first. */
+@container service-manager (max-width: 430px) {
+  .sessions { padding-left: 16px; padding-right: 10px; }
+  .services { padding-left: 10px; }
+  .service { gap: 7px; }
+}
+
+/* Touch: every action reaches 44px; the checkbox row is the whole target. */
+@media (pointer: coarse) {
+  .toggle,
+  .service,
+  .candidate { min-height: 44px; }
+
+  .controls button,
+  .service > button,
+  .candidate button,
+  .emptyAction button,
+  .actions button { min-height: 44px; }
+
+  .jump { min-height: 44px; }
+}

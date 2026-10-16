@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Modal, StateDot, Tag, relativeTime } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { RelativeTimeUnit, StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ActionResult, ListCandidatesResult, ListResult, MutationResult, RegisterRequest, RemoveRequest, ServiceCandidate, ServiceView, StopRequest } from '../types.ts'
 import { groupServices, projectLabel, sessionLabel, sessionTargetId } from './service-tree.ts'
@@ -24,6 +25,27 @@ const message = (error: unknown): string => error instanceof Error ? error.messa
 const noTitles: ReadonlyMap<string, string> = new Map()
 const noSubscription = (): void => {}
 
+/** Which write is in flight; `id` names the candidate row a claim acts on. */
+type PendingWrite = { readonly kind: 'stop' | 'stopAll' | 'stopLegacy' | 'remove' | 'claim'; readonly id?: string }
+
+/** The locale key naming each relative-time bucket the host returns. */
+const TIME_KEYS: Record<RelativeTimeUnit, 'timeNow' | 'timeMinutes' | 'timeHours' | 'timeDays' | 'timeMonths' | 'timeYears'> = {
+  now: 'timeNow',
+  minutes: 'timeMinutes',
+  hours: 'timeHours',
+  days: 'timeDays',
+  months: 'timeMonths',
+  years: 'timeYears',
+}
+
+/** The host dot vocabulary for this plugin's statuses; the text beside it names the state. */
+const STATUS_DOT: Record<ServiceView['status'], StateDotState> = {
+  running: 'done',
+  stopped: 'idle',
+  changed: 'warning',
+  unknown: 'idle',
+}
+
 /** Name the first failures; a batch can report more than a notice can read. */
 function describeFailures(failures: readonly ActionResult[], names: ReadonlyMap<string, string>): string {
   const shown = failures.slice(0, 3).map(row => `${names.get(row.id) ?? row.id}: ${row.message}`)
@@ -34,8 +56,13 @@ export function ServiceSection({ list, stop, remove, candidates, claim, openSess
   const [data, setData] = useState<ListResult>({ services: [], file: '' })
   const [loading, setLoading] = useState(true)
   const [loaded, setLoaded] = useState(false)
-  const [busy, setBusy] = useState(false)
+  // One write at a time; the dialog that owns it reports in progress itself.
+  const [pending, setPending] = useState<PendingWrite | null>(null)
   const [error, setError] = useState('')
+  const [actionError, setActionError] = useState('')
+  const [sessionError, setSessionError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [claimError, setClaimError] = useState<{ readonly key: string; readonly message: string } | null>(null)
   const [showEnded, setShowEnded] = useState(false)
   const [action, setAction] = useState<ServiceView['record'] | null>(null)
   const [stoppingAll, setStoppingAll] = useState(false)
@@ -47,6 +74,7 @@ export function ServiceSection({ list, stop, remove, candidates, claim, openSess
   const [adoptError, setAdoptError] = useState('')
   const mounted = useRef(false)
   const generation = useRef(0)
+  const busy = pending !== null
   // The Session list arrives asynchronously and rows can be renamed at any time,
   // so subscribe to the host's own store instead of reading it once.
   const readTitles = useCallback((): ReadonlyMap<string, string> => sessionTitles?.() ?? noTitles, [sessionTitles])
@@ -63,11 +91,9 @@ export function ServiceSection({ list, stop, remove, candidates, claim, openSess
       setLoaded(true)
       setError('')
     } catch (err) {
-      if (mounted.current && revision === generation.current) {
-        setData({ services: [], file: '' })
-        setLoaded(false)
-        setError(message(err))
-      }
+      // A failed read keeps the rows already on screen; the band above them says
+      // they are the last successful read rather than the current query's answer.
+      if (mounted.current && revision === generation.current) setError(message(err))
     } finally { if (mounted.current && revision === generation.current) setLoading(false) }
   }, [list])
 
@@ -83,22 +109,33 @@ export function ServiceSection({ list, stop, remove, candidates, claim, openSess
   // Stop-all reads the full status list, so a hidden ended row never enters a batch.
   const runningServices = data.services.filter(service => service.status === 'running')
   const legacyServices = runningServices.filter(service => service.legacy)
+  // Relative buckets come from the host; the words stay in this dictionary.
+  const now = Date.now()
+  const trackedAt = (createdAt: string): string => {
+    const at = Date.parse(createdAt)
+    if (!Number.isFinite(at)) return ''
+    const { unit, n } = relativeTime(at, now)
+    return t('trackedFor', { time: t(TIME_KEYS[unit], { count: n }) })
+  }
 
   const confirm = async () => {
     if (!action || busy) return
-    const pending = action
-    setBusy(true)
-    setError('')
+    const target = action
+    setPending({ kind: 'stop', id: target.id })
+    setActionError('')
+    setNotice('')
     try {
-      const result = await stop({ ids: [pending.id], force: true })
+      const result = await stop({ ids: [target.id], force: true })
       if (!mounted.current) return
       const failure = result.results.find(row => !row.ok)
       await refresh()
       if (!mounted.current) return
+      // A failure keeps the dialog, its target, and the retry in place.
+      if (failure) { setActionError(`${target.name}: ${failure.message}`); return }
       setAction(null)
-      if (failure) setError(`${pending.name}: ${failure.message}`)
-    } catch (err) { if (mounted.current) { setAction(null); setError(message(err)) } }
-    finally { if (mounted.current) setBusy(false) }
+      setNotice(t('stoppedOne'))
+    } catch (err) { if (mounted.current) setActionError(message(err)) }
+    finally { if (mounted.current) setPending(null) }
   }
 
   const confirmAll = async () => {
@@ -106,29 +143,31 @@ export function ServiceSection({ list, stop, remove, candidates, claim, openSess
     const targets = runningServices
     if (!targets.length) { setStoppingAll(false); return }
     const names = new Map(targets.map(service => [service.record.id, service.record.name]))
-    setBusy(true)
-    setError('')
+    setPending({ kind: 'stopAll' })
+    setActionError('')
+    setNotice('')
     try {
       const result = await stop({ ids: targets.map(service => service.record.id), force: true })
       const failures = result.results.filter(row => !row.ok)
       await refresh()
       if (!mounted.current) return
+      if (failures.length) { setActionError(`${t('stopAllFailed', { count: failures.length })}: ${describeFailures(failures, names)}`); return }
       setStoppingAll(false)
-      if (failures.length) setError(`${t('stopAllFailed', { count: failures.length })}: ${describeFailures(failures, names)}`)
-    } catch (err) { if (mounted.current) { setStoppingAll(false); setError(message(err)) } }
-    finally { if (mounted.current) setBusy(false) }
+      setNotice(t('stoppedAll'))
+    } catch (err) { if (mounted.current) setActionError(message(err)) }
+    finally { if (mounted.current) setPending(null) }
   }
 
   const jump = (session: string) => {
     if (!openSession) return
-    setError('')
+    setSessionError('')
     try {
       openSession(session)
       // This section lives inside the settings panel, so leaving it open would
       // hide the session that just became current.
       close?.()
     }
-    catch (err) { if (mounted.current) setError(`${t('openSessionFailed')}: ${message(err)}`) }
+    catch (err) { if (mounted.current) setSessionError(`${t('openSessionFailed')}: ${message(err)}`) }
   }
 
   /** Stop every running service that predates this Harness run, after explicit confirmation. */
@@ -137,34 +176,38 @@ export function ServiceSection({ list, stop, remove, candidates, claim, openSess
     const targets = legacyServices
     if (!targets.length) { setStoppingLegacy(false); return }
     const names = new Map(targets.map(service => [service.record.id, service.record.name]))
-    setBusy(true)
-    setError('')
+    setPending({ kind: 'stopLegacy' })
+    setActionError('')
+    setNotice('')
     try {
       const result = await stop({ ids: targets.map(service => service.record.id), force: true })
       const failures = result.results.filter(row => !row.ok)
       await refresh()
       if (!mounted.current) return
+      if (failures.length) { setActionError(`${t('stopLegacyFailed', { count: failures.length })}: ${describeFailures(failures, names)}`); return }
       setStoppingLegacy(false)
-      if (failures.length) setError(`${t('stopLegacyFailed', { count: failures.length })}: ${describeFailures(failures, names)}`)
-    } catch (err) { if (mounted.current) { setStoppingLegacy(false); setError(message(err)) } }
-    finally { if (mounted.current) setBusy(false) }
+      setNotice(t('stoppedLegacy'))
+    } catch (err) { if (mounted.current) setActionError(message(err)) }
+    finally { if (mounted.current) setPending(null) }
   }
 
   /** Drop one record without touching its resource. */
   const confirmRemove = async () => {
     if (!removing || busy) return
-    const pending = removing
-    setBusy(true)
-    setError('')
+    const target = removing
+    setPending({ kind: 'remove', id: target.id })
+    setActionError('')
+    setNotice('')
     try {
-      const result = await remove({ ids: [pending.id] })
+      const result = await remove({ ids: [target.id] })
       const failures = result.results.filter(row => !row.ok)
       await refresh()
       if (!mounted.current) return
+      if (failures.length) { setActionError(`${t('removeRecordFailed', { count: failures.length })}: ${describeFailures(failures, new Map([[target.id, target.name]]))}`); return }
       setRemoving(null)
-      if (failures.length) setError(`${t('removeRecordFailed', { count: failures.length })}: ${describeFailures(failures, new Map([[pending.id, pending.name]]))}`)
-    } catch (err) { if (mounted.current) { setRemoving(null); setError(message(err)) } }
-    finally { if (mounted.current) setBusy(false) }
+      setNotice(t('removedOne'))
+    } catch (err) { if (mounted.current) setActionError(message(err)) }
+    finally { if (mounted.current) setPending(null) }
   }
 
   const scanCandidates = useCallback(async () => {
@@ -179,23 +222,31 @@ export function ServiceSection({ list, stop, remove, candidates, claim, openSess
     finally { if (mounted.current) setAdoptLoading(false) }
   }, [candidates])
 
-  const openAdopt = () => { setAdopting(true); void scanCandidates() }
+  const openAdopt = () => { setActionError(''); setClaimError(null); setAdopting(true); void scanCandidates() }
 
   /** Adopt one listening process; only the process itself is followed, never its children. */
   const claimOne = async (candidate: ServiceCandidate) => {
+    const key = `${candidate.pid}:${candidate.port}`
+    setPending({ kind: 'claim', id: key })
     setAdoptError('')
+    setClaimError(null)
+    setNotice('')
     try {
       await claim({ kind: 'process', name: `${candidate.name} (:${candidate.port})`.slice(0, 512), pid: candidate.pid, tree: false })
       if (!mounted.current) return
       setAdoptRows(rows => rows.filter(row => row.pid !== candidate.pid || row.port !== candidate.port))
+      setNotice(t('claimedOne', { name: candidate.name }))
       await refresh()
-    } catch (err) { if (mounted.current) setAdoptError(`${candidate.name}: ${message(err)}`) }
+    } catch (err) { if (mounted.current) setClaimError({ key, message: message(err) }) }
+    finally { if (mounted.current) setPending(null) }
   }
+  // A candidate row whose claim failed keeps its place and its retry.
+  const claimKey = (candidate: ServiceCandidate): string => `${candidate.pid}:${candidate.port}`
 
   return <section className={css.section} aria-label={t('title')} aria-busy={loading || busy}>
     <header className={css.header}>
-      <div>
-        <h2>{t('title')} <span className={css.total}>{running}</span>{showEnded && ended > 0 && <span className={css.total}>{t('ended')} {ended}</span>}{legacyServices.length > 0 && <span className={css.legacyTotal} title={t('legacyTitle')}>{t('legacy')} {legacyServices.length}</span>}</h2>
+      <div className={css.heading}>
+        <h2>{t('title')} <Tag tone="neutral">{running}</Tag>{showEnded && ended > 0 && <Tag tone="quiet">{t('ended')} {ended}</Tag>}{legacyServices.length > 0 && <span className={css.legacyTotal} title={t('legacyTitle')}>{t('legacy')} {legacyServices.length}</span>}</h2>
         <p className={css.hint}>{t('hint')}</p>
       </div>
       <div className={css.controls}>
@@ -205,102 +256,145 @@ export function ServiceSection({ list, stop, remove, candidates, claim, openSess
         </label>
         <Button variant="ghost" size="sm" disabled={loading || busy} onClick={() => { void refresh() }}>{loading ? t('refreshing') : t('refresh')}</Button>
         <Button variant="ghost" size="sm" disabled={loading || busy} onClick={openAdopt}>{t('adopt')}</Button>
-        {legacyServices.length > 0 && <Button variant="outline" size="sm" disabled={loading || busy} onClick={() => { setStoppingLegacy(true) }}>{t('stopLegacy')}</Button>}
-        <Button variant="outline" size="sm" disabled={loading || busy || !running} onClick={() => { setStoppingAll(true) }}>{t('stopAll')}</Button>
+        {legacyServices.length > 0 && <Button variant="outline" size="sm" disabled={loading || busy} onClick={() => { setActionError(''); setStoppingLegacy(true) }}>{t('stopLegacy')}</Button>}
+        <Button variant="outline" size="sm" disabled={loading || busy || !running} onClick={() => { setActionError(''); setStoppingAll(true) }}>{t('stopAll')}</Button>
       </div>
     </header>
-    {error && <p className={css.error} role="alert">{t('error')}: {error}</p>}
+    {loaded && error && <p className={css.error} role="alert">
+      <span>{t('error')}: {error} {t('staleHint')}</span>
+      <Button size="sm" variant="outline" disabled={loading || busy} onClick={() => { void refresh() }}>{t('retry')}</Button>
+    </p>}
+    {sessionError && <p className={css.error} role="alert">{sessionError}</p>}
+    {notice && <p className={css.notice} role="status">{notice}</p>}
     {data.warnings?.map(warning => <p key={warning} className={css.error} role="alert">{t('discoveryWarning')}: {warning}</p>)}
-    {!loaded ? <div className={css.empty} role="status">{loading ? t('refreshing') : t('loadFailed')}</div> : !groups.length ? <div className={css.empty}>
-      <span className={css.emptyDot} /><strong>{t('empty')}</strong><p>{t('emptyHint')}</p>
-    </div> : <ul className={css.workspaces} aria-label={t('workspace')}>
-      {groups.map(group => <li key={group.project}>
-        <details className={css.workspace} open>
-          <summary title={group.project}><span className={css.groupLabel}>{projectLabel(group.project, t('unassignedWorkspace'))}</span><span className={css.count}>{group.count}</span></summary>
-          <ul className={css.sessions} aria-label={t('session')}>
-            {group.sessions.map(session => {
-              const target = sessionTargetId(session.session)
-              return <li key={session.session}>
-                <details className={css.session} open>
-                  <summary title={session.session}>
-                    <span className={css.groupLabel}>{sessionLabel(session.session, titles.get(session.session), t('session'), t('unassignedSession'))}</span>
-                    <span className={css.count}>{session.running}{showEnded && session.ended > 0 && <span className={css.countEnded} title={t('ended')}>+{session.ended}</span>}</span>
-                    {target && openSession && <button type="button" className={css.jump} onClick={event => { event.preventDefault(); event.stopPropagation(); jump(target) }}>{t('openSession')}</button>}
-                  </summary>
-                  <ul className={css.services} aria-label={t('services')}>
-                    {session.services.map(({ record, status, detail, legacy }) => {
-                      const identity = record.kind === 'process' ? String(record.pid) : record.kind === 'container' ? `${record.context} · ${record.containerId}` : record.jobId
-                      return <li key={record.id} className={css.service} data-status={status}>
-                        <span className={css.dot} data-status={status} title={t(status)} />
-                        <div className={css.info}>
-                          <strong title={record.name}>{record.name}</strong>
-                          <span className={css.meta} title={status === 'running' ? identity : detail || identity}>
-                            {t(record.kind)} · {record.kind === 'process' ? `PID ${record.pid}` : record.kind === 'container' ? record.containerId.slice(0, 12) : record.jobId}
-                            {record.url && <> · <a className={css.url} href={record.url} target="_blank" rel="noopener noreferrer" title={record.url}>{record.url}</a></>}
-                          </span>
-                        </div>
-                        {legacy && status === 'running' && <span className={css.legacy} title={t('legacyTitle')}>{t('legacy')}</span>}
-                        {status === 'running'
-                          ? <Button variant="outline" size="sm" disabled={busy || loading} onClick={() => setAction(record)}>{t('forceStop')}</Button>
-                          : <span className={css.rowActions}><span className={css.status} title={detail || undefined}>{t(status)}</span><Button variant="ghost" size="sm" disabled={busy || loading} onClick={() => setRemoving(record)}>{t('removeRecord')}</Button></span>}
-                      </li>
-                    })}
-                  </ul>
-                </details>
-              </li>
-            })}
-          </ul>
-        </details>
-      </li>)}
-    </ul>}
+    {!loaded
+      ? <div className={css.empty}>
+        {loading
+          ? <p className={css.hint} role="status">{t('refreshing')}</p>
+          : <><strong>{t('loadFailed')}</strong>
+            {error && <p className={css.error} role="alert">{error}</p>}
+            <Button size="sm" variant="outline" className={css.emptyAction} disabled={loading || busy} onClick={() => { void refresh() }}>{t('retry')}</Button></>}
+      </div>
+      : !groups.length
+        ? <div className={css.empty}>
+          <StateDot state="idle" size={10} /><strong>{t('empty')}</strong><p>{t('emptyHint')}</p>
+          <Button size="sm" variant="outline" className={css.emptyAction} disabled={loading || busy} onClick={openAdopt}>{t('emptyAction')}</Button>
+        </div>
+        : <ul className={css.workspaces} aria-label={t('workspace')}>
+          {groups.map(group => <li key={group.project}>
+            <details className={css.workspace} open>
+              <summary title={group.project}><span className={css.groupLabel}>{projectLabel(group.project, t('unassignedWorkspace'))}</span><span className={css.count}>{group.count}</span></summary>
+              <ul className={css.sessions} aria-label={t('session')}>
+                {group.sessions.map(session => {
+                  const target = sessionTargetId(session.session)
+                  return <li key={session.session}>
+                    <details className={css.session} open>
+                      <summary title={session.session}>
+                        <span className={css.groupLabel}>{sessionLabel(session.session, titles.get(session.session), t('session'), t('unassignedSession'))}</span>
+                        <span className={css.count}>{session.running}{showEnded && session.ended > 0 && <span className={css.countEnded} title={t('ended')}>+{session.ended}</span>}</span>
+                        {target && openSession && <button type="button" className={css.jump} onClick={event => { event.preventDefault(); event.stopPropagation(); jump(target) }}>{t('openSession')}</button>}
+                      </summary>
+                      <ul className={css.services} aria-label={t('services')}>
+                        {session.services.map(({ record, status, detail, legacy }) => {
+                          const identity = record.kind === 'process' ? String(record.pid) : record.kind === 'container' ? `${record.context} · ${record.containerId}` : record.jobId
+                          return <li key={record.id} className={css.service} data-status={status}>
+                            {/* The dot is decoration; the status word beside it carries the state. */}
+                            <StateDot state={STATUS_DOT[status]} size={8} />
+                            <div className={css.info}>
+                              <strong title={record.name}>{record.name}</strong>
+                              <span className={css.meta} title={status === 'running' ? identity : detail || identity}>
+                                {t(record.kind)} · {record.kind === 'process' ? `PID ${record.pid}` : record.kind === 'container' ? record.containerId.slice(0, 12) : record.jobId}
+                                {record.url && <> · <a className={css.url} href={record.url} target="_blank" rel="noopener noreferrer" title={record.url}>{record.url}</a></>}
+                              </span>
+                            </div>
+                            {legacy && status === 'running' && <span className={css.legacy} title={t('legacyTitle')}>{t('legacy')}</span>}
+                            <span className={css.when} title={record.createdAt}>{trackedAt(record.createdAt)}</span>
+                            <span className={css.status} title={detail || undefined}>{t(status)}</span>
+                            {status === 'running'
+                              ? <Button variant="outline" size="sm" disabled={busy || loading} onClick={() => { setActionError(''); setAction(record) }}>{t('forceStop')}</Button>
+                              : <Button variant="ghost" size="sm" disabled={busy || loading} onClick={() => { setActionError(''); setRemoving(record) }}>{t('removeRecord')}</Button>}
+                          </li>
+                        })}
+                      </ul>
+                    </details>
+                  </li>
+                })}
+              </ul>
+            </details>
+          </li>)}
+        </ul>}
     <Modal open={action !== null} onClose={() => { if (!busy) setAction(null) }} title={t('forceStop')} closeLabel={t('close')}
       description={t('forceStopHint')}
       footer={<div className={css.actions}>
         <Button variant="outline" size="sm" disabled={busy} onClick={() => setAction(null)} data-modal-autofocus>{t('cancel')}</Button>
-        <Button variant="primary" size="sm" disabled={busy} onClick={() => { void confirm() }}>{busy ? t('busy') : t('forceStop')}</Button>
+        <Button variant="primary" size="sm" disabled={busy} onClick={() => { void confirm() }}>{pending?.kind === 'stop' ? t('busy') : t('forceStop')}</Button>
       </div>}>
       <p className={css.target}>{action?.name}</p>
+      {pending?.kind === 'stop' && <p className={css.busy} role="status">{t('busy')}</p>}
+      {actionError && <p className={css.error} role="alert">
+        <span>{actionError} {t('dialogRetryHint')}</span>
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => { void confirm() }}>{t('retry')}</Button>
+      </p>}
     </Modal>
     <Modal open={stoppingAll} onClose={() => { if (!busy) setStoppingAll(false) }} title={t('stopAll')} closeLabel={t('close')}
       description={t('stopAllHint', { count: running })}
       footer={<div className={css.actions}>
         <Button variant="outline" size="sm" disabled={busy} onClick={() => setStoppingAll(false)} data-modal-autofocus>{t('cancel')}</Button>
-        <Button variant="primary" size="sm" disabled={busy} onClick={() => { void confirmAll() }}>{busy ? t('busy') : t('stopAll')}</Button>
+        <Button variant="primary" size="sm" disabled={busy} onClick={() => { void confirmAll() }}>{pending?.kind === 'stopAll' ? t('busy') : t('stopAll')}</Button>
       </div>}>
       <ul className={css.targets}>{runningServices.map(service => <li key={service.record.id} title={service.record.name}>{service.record.name}</li>)}</ul>
+      {actionError && <p className={css.error} role="alert">
+        <span>{actionError} {t('dialogRetryHint')}</span>
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => { void confirmAll() }}>{t('retry')}</Button>
+      </p>}
     </Modal>
     <Modal open={stoppingLegacy} onClose={() => { if (!busy) setStoppingLegacy(false) }} title={t('stopLegacy')} closeLabel={t('close')}
       description={t('stopLegacyHint', { count: legacyServices.length })}
       footer={<div className={css.actions}>
         <Button variant="outline" size="sm" disabled={busy} onClick={() => setStoppingLegacy(false)} data-modal-autofocus>{t('cancel')}</Button>
-        <Button variant="primary" size="sm" disabled={busy} onClick={() => { void confirmLegacy() }}>{busy ? t('busy') : t('stopLegacy')}</Button>
+        <Button variant="primary" size="sm" disabled={busy} onClick={() => { void confirmLegacy() }}>{pending?.kind === 'stopLegacy' ? t('busy') : t('stopLegacy')}</Button>
       </div>}>
       <ul className={css.targets}>{legacyServices.map(service => <li key={service.record.id} title={service.record.name}>{service.record.name}</li>)}</ul>
+      {actionError && <p className={css.error} role="alert">
+        <span>{actionError} {t('dialogRetryHint')}</span>
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => { void confirmLegacy() }}>{t('retry')}</Button>
+      </p>}
     </Modal>
     <Modal open={removing !== null} onClose={() => { if (!busy) setRemoving(null) }} title={t('removeRecord')} closeLabel={t('close')}
       description={t('removeRecordHint')}
       footer={<div className={css.actions}>
         <Button variant="outline" size="sm" disabled={busy} onClick={() => setRemoving(null)} data-modal-autofocus>{t('cancel')}</Button>
-        <Button variant="primary" size="sm" disabled={busy} onClick={() => { void confirmRemove() }}>{busy ? t('busy') : t('removeRecord')}</Button>
+        <Button variant="primary" size="sm" disabled={busy} onClick={() => { void confirmRemove() }}>{pending?.kind === 'remove' ? t('removing') : t('removeRecord')}</Button>
       </div>}>
       <p className={css.target}>{removing?.name}</p>
+      {pending?.kind === 'remove' && <p className={css.busy} role="status">{t('removing')}</p>}
+      {actionError && <p className={css.error} role="alert">
+        <span>{actionError} {t('dialogRetryHint')}</span>
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => { void confirmRemove() }}>{t('retry')}</Button>
+      </p>}
     </Modal>
-    <Modal open={adopting} onClose={() => { if (!adoptLoading) setAdopting(false) }} title={t('adoptTitle')} closeLabel={t('close')}
+    <Modal open={adopting} onClose={() => { if (!adoptLoading && !busy) setAdopting(false) }} title={t('adoptTitle')} closeLabel={t('close')}
       description={t('adoptHint')}
       footer={<div className={css.actions}>
-        <Button variant="ghost" size="sm" disabled={adoptLoading} onClick={() => { void scanCandidates() }}>{adoptLoading ? t('adoptScanned') : t('refresh')}</Button>
-        <Button variant="outline" size="sm" disabled={adoptLoading} onClick={() => setAdopting(false)} data-modal-autofocus>{t('close')}</Button>
+        <Button variant="ghost" size="sm" disabled={adoptLoading || busy} onClick={() => { void scanCandidates() }}>{adoptLoading ? t('adoptScanned') : t('refresh')}</Button>
+        <Button variant="outline" size="sm" disabled={adoptLoading || busy} onClick={() => setAdopting(false)} data-modal-autofocus>{t('close')}</Button>
       </div>}>
       {adoptError && <p className={css.error} role="alert">{adoptError}</p>}
       {!adoptRows.length
         ? <p className={css.target}>{adoptLoading ? t('adoptScanned') : t('adoptEmpty')}</p>
-        : <ul className={css.candidates}>{adoptRows.map(candidate => <li key={`${candidate.pid}:${candidate.port}`} className={css.candidate}>
-          <div className={css.info}>
-            <strong title={candidate.name}>{candidate.name}</strong>
-            <span className={css.meta}>{candidate.protocol} · {candidate.address} · PID {candidate.pid}</span>
-          </div>
-          <Button variant="outline" size="sm" disabled={adoptLoading} onClick={() => { void claimOne(candidate) }}>{t('adoptOne')}</Button>
-        </li>)}</ul>}
+        : <ul className={css.candidates}>{adoptRows.map(candidate => {
+          const key = claimKey(candidate)
+          const failing = claimError?.key === key
+          return <li key={key} className={css.candidate}>
+            <div className={css.info}>
+              <strong title={candidate.name}>{candidate.name}</strong>
+              <span className={css.meta}>{candidate.protocol} · {candidate.address} · PID {candidate.pid}</span>
+            </div>
+            {pending?.kind === 'claim' && pending.id === key && <span className={css.busy} role="status">{t('claiming')}</span>}
+            {failing && <span className={css.error} role="alert">{claimError.message}</span>}
+            <Button variant="outline" size="sm" disabled={adoptLoading || busy} onClick={() => { void claimOne(candidate) }}>{failing ? t('retry') : t('adoptOne')}</Button>
+          </li>
+        })}</ul>}
     </Modal>
   </section>
 }
