@@ -13,6 +13,9 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   Modal: ({ open, title, description, children, footer }: any) => open ? <div role="dialog" aria-label={title}><h2>{title}</h2><p>{description}</p>{children}{footer}</div> : null,
   Tag: ({ children }: any) => <span>{children}</span>,
   StateDot: ({ state }: any) => <span data-state={state} aria-hidden="true" />,
+  // The host Toast portals to the body; the stand-in keeps its role and copy in
+  // the tree so a case reads the outcome the section hands it.
+  Toast: ({ text }: any) => <span role="status">{text}</span>,
   relativeTime: (at: number, now: number) => {
     const minutes = Math.max(0, Math.round((now - at) / 60_000))
     if (minutes < 1) return { unit: 'now', n: 0 }
@@ -262,7 +265,7 @@ describe('running service tree', () => {
     expect(await screen.findByRole('dialog', { name: zh.adoptTitle })).toBeTruthy()
   })
 
-  it('reports a successful stop next to the section and keeps a failed one in its dialog with a retry', async () => {
+  it('reports a successful stop in the host banner and keeps a failed one in its dialog with a retry', async () => {
     const f = fixture()
     const stop = vi.fn<ServiceFace['stop']>()
       .mockRejectedValueOnce(new Error('stop refused'))

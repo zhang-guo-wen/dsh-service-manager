@@ -87,16 +87,6 @@
   overflow-wrap: anywhere;
 }
 
-/* Outcome of the last action, next to the section rather than a toast. */
-.notice {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  color: var(--dsw-alias-state-success-primary);
-  font: var(--dsw-font-xxs-12);
-}
-
 /* In-flight label inside a dialog or a candidate row. */
 .busy {
   display: inline-flex;

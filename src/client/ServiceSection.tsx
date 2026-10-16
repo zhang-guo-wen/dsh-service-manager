@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { Button, Modal, StateDot, Tag, relativeTime } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Modal, StateDot, Tag, Toast, relativeTime } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { RelativeTimeUnit, StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ActionResult, ListCandidatesResult, ListResult, MutationResult, RegisterRequest, RemoveRequest, ServiceCandidate, ServiceView, StopRequest } from '../types.ts'
@@ -61,7 +61,18 @@ export function ServiceSection({ list, stop, remove, candidates, claim, openSess
   const [error, setError] = useState('')
   const [actionError, setActionError] = useState('')
   const [sessionError, setSessionError] = useState('')
-  const [notice, setNotice] = useState('')
+  /**
+   * The settled outcome of the last stop, remove or claim, reported in the host's
+   * floating banner: the service tree can be long, so a line under it scrolls out
+   * of view exactly when the reader wants the answer. `seq` restarts the hold
+   * when the same outcome is reported again.
+   */
+  const [notice, setNotice] = useState<{ text: string; seq: number } | null>(null)
+  const noticeSeq = useRef(0)
+  const reportNotice = (text: string): void => {
+    noticeSeq.current += 1
+    setNotice({ text, seq: noticeSeq.current })
+  }
   const [claimError, setClaimError] = useState<{ readonly key: string; readonly message: string } | null>(null)
   const [showEnded, setShowEnded] = useState(false)
   const [action, setAction] = useState<ServiceView['record'] | null>(null)
@@ -123,7 +134,7 @@ export function ServiceSection({ list, stop, remove, candidates, claim, openSess
     const target = action
     setPending({ kind: 'stop', id: target.id })
     setActionError('')
-    setNotice('')
+    setNotice(null)
     try {
       const result = await stop({ ids: [target.id], force: true })
       if (!mounted.current) return
@@ -133,7 +144,7 @@ export function ServiceSection({ list, stop, remove, candidates, claim, openSess
       // A failure keeps the dialog, its target, and the retry in place.
       if (failure) { setActionError(`${target.name}: ${failure.message}`); return }
       setAction(null)
-      setNotice(t('stoppedOne'))
+      reportNotice(t('stoppedOne'))
     } catch (err) { if (mounted.current) setActionError(message(err)) }
     finally { if (mounted.current) setPending(null) }
   }
@@ -145,7 +156,7 @@ export function ServiceSection({ list, stop, remove, candidates, claim, openSess
     const names = new Map(targets.map(service => [service.record.id, service.record.name]))
     setPending({ kind: 'stopAll' })
     setActionError('')
-    setNotice('')
+    setNotice(null)
     try {
       const result = await stop({ ids: targets.map(service => service.record.id), force: true })
       const failures = result.results.filter(row => !row.ok)
@@ -153,7 +164,7 @@ export function ServiceSection({ list, stop, remove, candidates, claim, openSess
       if (!mounted.current) return
       if (failures.length) { setActionError(`${t('stopAllFailed', { count: failures.length })}: ${describeFailures(failures, names)}`); return }
       setStoppingAll(false)
-      setNotice(t('stoppedAll'))
+      reportNotice(t('stoppedAll'))
     } catch (err) { if (mounted.current) setActionError(message(err)) }
     finally { if (mounted.current) setPending(null) }
   }
@@ -178,7 +189,7 @@ export function ServiceSection({ list, stop, remove, candidates, claim, openSess
     const names = new Map(targets.map(service => [service.record.id, service.record.name]))
     setPending({ kind: 'stopLegacy' })
     setActionError('')
-    setNotice('')
+    setNotice(null)
     try {
       const result = await stop({ ids: targets.map(service => service.record.id), force: true })
       const failures = result.results.filter(row => !row.ok)
@@ -186,7 +197,7 @@ export function ServiceSection({ list, stop, remove, candidates, claim, openSess
       if (!mounted.current) return
       if (failures.length) { setActionError(`${t('stopLegacyFailed', { count: failures.length })}: ${describeFailures(failures, names)}`); return }
       setStoppingLegacy(false)
-      setNotice(t('stoppedLegacy'))
+      reportNotice(t('stoppedLegacy'))
     } catch (err) { if (mounted.current) setActionError(message(err)) }
     finally { if (mounted.current) setPending(null) }
   }
@@ -197,7 +208,7 @@ export function ServiceSection({ list, stop, remove, candidates, claim, openSess
     const target = removing
     setPending({ kind: 'remove', id: target.id })
     setActionError('')
-    setNotice('')
+    setNotice(null)
     try {
       const result = await remove({ ids: [target.id] })
       const failures = result.results.filter(row => !row.ok)
@@ -205,7 +216,7 @@ export function ServiceSection({ list, stop, remove, candidates, claim, openSess
       if (!mounted.current) return
       if (failures.length) { setActionError(`${t('removeRecordFailed', { count: failures.length })}: ${describeFailures(failures, new Map([[target.id, target.name]]))}`); return }
       setRemoving(null)
-      setNotice(t('removedOne'))
+      reportNotice(t('removedOne'))
     } catch (err) { if (mounted.current) setActionError(message(err)) }
     finally { if (mounted.current) setPending(null) }
   }
@@ -230,12 +241,12 @@ export function ServiceSection({ list, stop, remove, candidates, claim, openSess
     setPending({ kind: 'claim', id: key })
     setAdoptError('')
     setClaimError(null)
-    setNotice('')
+    setNotice(null)
     try {
       await claim({ kind: 'process', name: `${candidate.name} (:${candidate.port})`.slice(0, 512), pid: candidate.pid, tree: false })
       if (!mounted.current) return
       setAdoptRows(rows => rows.filter(row => row.pid !== candidate.pid || row.port !== candidate.port))
-      setNotice(t('claimedOne', { name: candidate.name }))
+      reportNotice(t('claimedOne', { name: candidate.name }))
       await refresh()
     } catch (err) { if (mounted.current) setClaimError({ key, message: message(err) }) }
     finally { if (mounted.current) setPending(null) }
@@ -265,7 +276,6 @@ export function ServiceSection({ list, stop, remove, candidates, claim, openSess
       <Button size="sm" variant="outline" disabled={loading || busy} onClick={() => { void refresh() }}>{t('retry')}</Button>
     </p>}
     {sessionError && <p className={css.error} role="alert">{sessionError}</p>}
-    {notice && <p className={css.notice} role="status">{notice}</p>}
     {data.warnings?.map(warning => <p key={warning} className={css.error} role="alert">{t('discoveryWarning')}: {warning}</p>)}
     {!loaded
       ? <div className={css.empty}>
@@ -396,5 +406,10 @@ export function ServiceSection({ list, stop, remove, candidates, claim, openSess
           </li>
         })}</ul>}
     </Modal>
+    {/* The settled outcome of the last stop, remove or claim, in the host's
+        floating banner: the service tree can be long, so a line under it scrolls
+        out of view exactly when the reader wants the answer. */}
+    {notice !== null && <Toast key={notice.seq} text={notice.text} tone="success"
+      onDone={() => { setNotice(current => current?.seq === notice.seq ? null : current) }} />}
   </section>
 }
