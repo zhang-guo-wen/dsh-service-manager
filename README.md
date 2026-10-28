@@ -15,11 +15,15 @@ AI often starts service processes for testing and forgets to stop them. Without 
 - A service that was already running before this Harness run is labelled **Leftover**, and the page can stop those leftovers in one confirmed batch.
 - In the plugin list, display names and descriptions follow the Harness language setting in English or Chinese (English is the default fallback); English names use the package name without its npm scope, Chinese names describe the purpose, and installation still uses the unchanged real package name.
 
-## Screenshot
+## Screenshots
 
 ![Service Manager settings page](<docs/screenshots/service-manager.png>)
 
 Open **Settings → Service Manager** to view running services, force-stop one or stop all, clean up leftovers that predate this run, remove ended records (the record only, never the resource), and scan local listening ports to adopt services that are not tracked yet. A failed refresh keeps the last successful list and says so; stopping, removing, and adopting each report in progress, success, and failure, and a failure keeps its data and retries in place; every row names its status beside the colour dot.
+
+Cleaning up leftovers lists every service that will be stopped and asks for a single confirmation:
+
+![Clean up leftovers confirmation](<docs/screenshots/service-manager-cleanup-leftovers.png>)
 
 ## Install
 
