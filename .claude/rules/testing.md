@@ -8,7 +8,7 @@ paths:
 
 ## Testing
 
-Run npm run typecheck, npm test, npm run build. Include regression tests for
+Run pnpm run typecheck, pnpm test, pnpm run build. Include regression tests for
 identity reuse, unknown status, concurrent file updates, manual-only stops,
 reconciliation timing, the unmarked parent chain, and the listener parsers.
 `tests/host-bundle.spec.ts` asserts the built plugin registers no model tools.

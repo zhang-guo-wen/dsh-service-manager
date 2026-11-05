@@ -4,7 +4,7 @@ Independent DeepSeek Harness / Cordis plugin. Host code is in src/, browser code
 in src/client/, generated installable bundles in lib/. Keep @deepseek-ai/* and
 React external. Rebuild lib/ after source changes.
 
-Commands: `npm run typecheck`, `npm test`, `npm run build`, `npm run test:metadata`.
+Commands: `pnpm run typecheck`, `pnpm test`, `pnpm run build`, `pnpm run test:metadata`.
 
 ## Hard constraints
 
