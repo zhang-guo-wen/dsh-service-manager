@@ -1,42 +1,40 @@
-# dsh-service-manager
+---
+description: "在 DeepSeek Harness 里统一查看并关闭 AI 起动的后台任务、进程与 Docker 容器"
+kind: "plugin-readme"
+---
 
-English | [简体中文](<README.zh.md>)
+# @guowenzhang/dsh-service-manager
 
-## Background
+[English](<README.en.md>)
 
-AI often starts service processes for testing and forgets to stop them. Without a central place to view and shut them down, these processes linger in the system and waste resources.
+## 背景
 
-`dsh-service-manager` provides a unified service management page for DeepSeek Harness. It automatically collects supported background jobs, processes, and Docker containers, grouped by workspace and session, so you can inspect and stop them manually. Services stop only after user confirmation, never automatically when a session ends.
+**AI 起的服务，一处收尾。**
 
-## Tracking across restarts
+AI 常为测试起动服务，之后忘记关闭，进程就长期驻留在系统里。这个插件把后台任务、进程和 Docker 容器收进同一张表，按工作区与会话分组，方便查看和手动停止。服务只在你确认后停止，不会随会话结束自动关闭。
 
-- A record stores identity only (PID plus creation time, host, and the full container ID), never live status. Every refresh re-checks it, and a reused PID is reported as **PID reused** instead of being mistaken for the original service.
-- Ownership has two channels: the marker child processes inherit (which survives the launcher exiting, so a restart can find the process again) and, for processes without a marker, the ancestor chain back to the Harness process.
-- A service that was already running before this Harness run is labelled **Leftover**, and the page can stop those leftovers in one confirmed batch.
-- In the plugin list, display names and descriptions follow the Harness language setting in English or Chinese (English is the default fallback); English names use the package name without its npm scope, Chinese names describe the purpose, and installation still uses the unchanged real package name.
+## 截图
 
-## Screenshots
+**服务列表**：运行中的服务按工作区与会话分组，每一行的状态除色点外还有文字。
 
-![Service Manager settings page](<docs/screenshots/service-manager.png>)
+![服务管理页面](<docs/screenshots/service-manager.png>)
 
-Open **Settings → Service Manager** to view running services, force-stop one or stop all, clean up leftovers that predate this run, remove ended records (the record only, never the resource), and scan local listening ports to adopt services that are not tracked yet. A failed refresh keeps the last successful list and says so; stopping, removing, and adopting each report in progress, success, and failure, and a failure keeps its data and retries in place; every row names its status beside the colour dot.
+**清理遗留**：先列出全部将被停止的服务，一次确认后才动手。
 
-Cleaning up leftovers lists every service that will be stopped and asks for a single confirmation:
+![清理遗留确认框](<docs/screenshots/service-manager-cleanup-leftovers.png>)
 
-![Clean up leftovers confirmation](<docs/screenshots/service-manager-cleanup-leftovers.png>)
-
-## Install
-
-Requires DSH >= 0.1.7, including its prereleases.
+## 安装
 
 ```sh
 npx @deepseek-ai/dsh plugin --profile web add @guowenzhang/dsh-service-manager
 ```
 
-Restart the host and refresh the Web page after installation.
+需要 DSH 0.1.7 及以上、0.3.0 以下（含预发布版本）。装完重启宿主并刷新页面，打开 **设置 → 服务管理**。
 
-Desktop: open **Plugins → Add plugin**, enter a local checkout path, install, and choose **Enable now**.
+## 特点
 
-## License
-
-[Apache-2.0](<LICENSE>)
+1. **自动收录**：后台任务、进程和 Docker 容器都进同一张表，按工作区与会话分组。
+2. **只在确认后停止**：单个强制停止、全部关闭或批量清理遗留，都不会在会话结束时自动动手。
+3. **跨重启仍能认回**：记录只存身份（PID 加创建时间、主机、容器完整 ID），每次刷新重新校验，PID 被复用会标出来。
+4. **认领没跟踪的服务**：扫描本机监听端口，把漏掉的服务显式加进来。
+5. **失败可原地重试**：停止、移除、认领都有进行中、成功、失败三态，失败时保留原数据。
